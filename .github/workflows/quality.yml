@@ -4,6 +4,7 @@ on:
 env:
   RGUARD_REV: "50aa1c13b9c85c7af3b76d05e6a610194e9367be"
   SEMGREP_VERSION: "1.136.0"
+  SETUPTOOLS_VERSION: "80.9.0"
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -18,7 +19,7 @@ jobs:
         run: |
           cargo install --git https://github.com/moabualruz/rice-guard --rev "$RGUARD_REV" --locked --bin rguard --root "$RUNNER_TEMP/rguard"
           echo "$RUNNER_TEMP/rguard/bin" >> "$GITHUB_PATH"
-          python -m pip install "semgrep==$SEMGREP_VERSION"
+          python -m pip install "setuptools==$SETUPTOOLS_VERSION" "semgrep==$SEMGREP_VERSION"
           echo "SEMGREP_BINARY=$(command -v semgrep)" >> "$GITHUB_ENV"
           echo "SEMGREP_LOG_PATH=$RUNNER_TEMP/semgrep-stderr.log" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/semgrep-wrapper"

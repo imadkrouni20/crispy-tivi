@@ -87,11 +87,10 @@ rust/crates/crispy-core/src/services/xtream_sync.rs|1054
 rust/crates/crispy-core/src/backup.rs|965
 rust/crates/crispy-core/tests/db_integration.rs|505
 rust/crates/crispy-ffi/src/api/algorithms.rs|625
-rust/crates/crispy-server/src/handlers/crud.rs|984
+rust/crates/crispy-server/src/handlers/crud.rs|998
 rust/crates/crispy-server/src/handlers/algorithms.rs|1011
 rust/crates/crispy-server/src/main.rs|1340
 rust/crates/crispy-server/tests/handler_tests/algorithms.rs|568
-rust/crates/crispy-server/src/handlers/crud.rs|998
 rust/crates/crispy-server/tests/handler_tests/crud_media.rs|501
 rust/shared/crispy-iptv-types/src/epg.rs|713
 rust/shared/crispy-m3u/src/parser.rs|1933

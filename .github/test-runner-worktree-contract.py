@@ -305,6 +305,17 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("Preserve scanner diagnostics", quality)
         self.assertIn("rguard-report-${{ github.run_id }}-${{ github.run_attempt }}", quality)
 
+    def test_quality_workflows_pin_setuptools_for_semgrep_imports(self):
+        for workflow in ("ci.yml", "quality.yml"):
+            text = (WORKFLOWS / workflow).read_text()
+            self.assertIn('SETUPTOOLS_VERSION: "80.9.0"', text, workflow)
+            self.assertIn('"setuptools==$SETUPTOOLS_VERSION"', text, workflow)
+
+    def test_file_size_baseline_has_unique_paths(self):
+        baseline = ROOT / "scripts/ci/file_size_baseline.txt"
+        paths = [line.split("|", 1)[0] for line in baseline.read_text().splitlines() if line.strip()]
+        self.assertEqual(len(paths), len(set(paths)), "duplicate file-size baseline path")
+
     def test_rust_jobs_install_linux_build_dependencies(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
         for name in ("rust-test", "build-server"):
@@ -314,6 +325,7 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("dbus-run-session -- bash -e -c", jobs["rust-test"])
         self.assertIn("gnome-keyring-daemon --unlock --components=secrets", jobs["rust-test"])
         self.assertIn('HOME="$keyring_home"', jobs["rust-test"])
+        self.assertIn('RUSTUP_HOME="$rustup_home"', jobs["rust-test"])
         self.assertIn('XDG_RUNTIME_DIR="$keyring_runtime"', jobs["rust-test"])
 
     def test_playwright_starts_the_backend_artifact(self):
