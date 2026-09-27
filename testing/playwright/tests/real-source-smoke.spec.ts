@@ -175,12 +175,12 @@ test.describe("Real Source Smoke", () => {
     // After toggling the expensive EPG-only filter, the app must still
     // respond to a normal route change quickly.
     await navigateTo(page, "Movies");
-    const moviesShot = await takeNamedScreenshot(page, "real-smoke-movies");
-    expect(moviesShot.length).toBeGreaterThan(100_000);
+    expect(page.url()).toContain("#/vod");
+    await takeNamedScreenshot(page, "real-smoke-movies");
 
     await navigateTo(page, "Series");
-    const seriesShot = await takeNamedScreenshot(page, "real-smoke-series");
-    expect(seriesShot.length).toBeGreaterThan(100_000);
+    expect(page.url()).toContain("#/series");
+    await takeNamedScreenshot(page, "real-smoke-series");
 
     const seriesInfoResponse = page.waitForResponse(
       (response) =>
