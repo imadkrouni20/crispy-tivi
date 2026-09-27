@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -23,6 +24,12 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  ProviderContainer getContainer(WidgetTester tester) {
+    final app = find.byType(MaterialApp);
+    expect(app, findsOneWidget);
+    return ProviderScope.containerOf(tester.element(app));
+  }
+
   group('Player Speed Memory Flow', () {
     // ──────────────────────────────────────────────────────────
     // Test 1: Default playback speed is 1.0×
@@ -41,8 +48,7 @@ void main() {
       // Read the provider state from the widget tree.
       double capturedSpeed = -1;
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         capturedSpeed = container.read(lastPlaybackSpeedProvider);
       });
 
@@ -75,8 +81,7 @@ void main() {
 
         // Set speed to 1.5× via provider.
         await tester.runAsync(() async {
-          final element = tester.element(find.byType(ProviderScope).first);
-          final container = ProviderScope.containerOf(element);
+          final container = getContainer(tester);
           container.read(lastPlaybackSpeedProvider.notifier).setSpeed(1.5);
         });
         await tester.pump();
@@ -84,8 +89,7 @@ void main() {
         // Verify speed is now 1.5×.
         double capturedSpeed = -1;
         await tester.runAsync(() async {
-          final element = tester.element(find.byType(ProviderScope).first);
-          final container = ProviderScope.containerOf(element);
+          final container = getContainer(tester);
           capturedSpeed = container.read(lastPlaybackSpeedProvider);
         });
 
@@ -121,8 +125,7 @@ void main() {
 
       // Simulate: user watched a VOD at 1.5× — set the persisted speed.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         container.read(lastPlaybackSpeedProvider.notifier).setSpeed(1.5);
       });
       await tester.pump();
@@ -136,8 +139,7 @@ void main() {
       // Verify the speed is still 1.5× after navigation.
       double speedAfterNav = -1;
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         speedAfterNav = container.read(lastPlaybackSpeedProvider);
       });
 
@@ -172,8 +174,7 @@ void main() {
 
       // Simulate: user previously set VOD speed to 1.5×.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         container.read(lastPlaybackSpeedProvider.notifier).setSpeed(1.5);
       });
       await tester.pump();
@@ -191,8 +192,7 @@ void main() {
       // We test this via LastPlaybackSpeedNotifier.reset() which is what
       // the live TV path must call.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         // The live TV playback flow must call reset() to enforce 1.0×.
         container.read(lastPlaybackSpeedProvider.notifier).reset();
       });
@@ -200,8 +200,7 @@ void main() {
 
       double speedAfterLive = -1;
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         speedAfterLive = container.read(lastPlaybackSpeedProvider);
       });
 
@@ -233,16 +232,14 @@ void main() {
 
       // Test clamping at lower bound.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         container.read(lastPlaybackSpeedProvider.notifier).setSpeed(0.0);
       });
       await tester.pump();
 
       double tooLow = -1;
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         tooLow = container.read(lastPlaybackSpeedProvider);
       });
 
@@ -254,16 +251,14 @@ void main() {
 
       // Test clamping at upper bound.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         container.read(lastPlaybackSpeedProvider.notifier).setSpeed(10.0);
       });
       await tester.pump();
 
       double tooHigh = -1;
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         tooHigh = container.read(lastPlaybackSpeedProvider);
       });
 
@@ -295,8 +290,7 @@ void main() {
 
       // Pre-set speed to 2.0× as if user changed it during a previous session.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         container.read(lastPlaybackSpeedProvider.notifier).setSpeed(2.0);
       });
       await tester.pump();
@@ -320,8 +314,7 @@ void main() {
       // a VOD session; the session reads it to configure PlayerService.
       double speedDuringVod = -1;
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         speedDuringVod = container.read(lastPlaybackSpeedProvider);
       });
 

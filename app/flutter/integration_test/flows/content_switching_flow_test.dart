@@ -26,8 +26,9 @@ void main() {
 
   /// Helper to get the ProviderContainer from the widget tree.
   ProviderContainer getContainer(WidgetTester tester) {
-    final element = tester.element(find.byType(ProviderScope).first);
-    return ProviderScope.containerOf(element);
+    final app = find.byType(MaterialApp);
+    expect(app, findsOneWidget);
+    return ProviderScope.containerOf(tester.element(app));
   }
 
   group('Content Switching Flow', () {
