@@ -154,7 +154,7 @@ jobs:
   # =================================================================
   build-linux-android-web:
     name: Build Linux + Android + Web
-    runs-on: [self-hosted, linux, x64, generic]
+    runs-on: ${{ github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -312,7 +312,7 @@ jobs:
   # =================================================================
   create-release:
     name: Create GitHub Release
-    runs-on: [self-hosted, linux, x64, generic]
+    runs-on: ${{ github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
     needs: [build-windows, build-macos-ios, build-linux-android-web]
     steps:
       - uses: actions/checkout@v4

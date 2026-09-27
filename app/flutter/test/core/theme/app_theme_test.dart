@@ -51,5 +51,24 @@ void main() {
       expect(crispy.liveRed, const Color(0xFFFF5252));
       expect(crispy.epgNowLine, const Color(0xFFFF0000));
     });
+
+    test('Should Use Cupertino Transitions on Apple Platforms', () {
+      final builders =
+          AppTheme.fromSeedHex('#3B82F6').theme.pageTransitionsTheme.builders;
+      final defaults = PageTransitionsTheme().builders;
+
+      expect(
+        builders[TargetPlatform.iOS]?.runtimeType,
+        defaults[TargetPlatform.iOS]?.runtimeType,
+      );
+      expect(
+        builders[TargetPlatform.macOS]?.runtimeType,
+        defaults[TargetPlatform.macOS]?.runtimeType,
+      );
+      expect(
+        builders[TargetPlatform.android],
+        isA<ZoomPageTransitionsBuilder>(),
+      );
+    });
   });
 }

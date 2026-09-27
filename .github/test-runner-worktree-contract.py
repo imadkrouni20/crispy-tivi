@@ -21,23 +21,13 @@ def job_blocks(workflow):
     return text, blocks
 
 
-def pr_label(expression):
-    return f"pr-{{0}}-{{1}}" in expression and all(
-        context in expression
-        for context in (
-            "github.repository_id",
-            "github.event.pull_request.number",
-        )
-    )
-
-
 class RunnerWorktreeContractTests(unittest.TestCase):
-    def test_brokered_pr_sha_guard_accepts_only_exact_head(self):
+    def test_hosted_pr_checkout_matches_workflow_sha(self):
         ci, jobs = job_blocks(WORKFLOWS / "ci.yml")
         prepare = jobs["prepare-pr-worktree"]
         guard = re.search(
-            r"(?ms)^      - name: Verify brokered PR checkout matches workflow SHA\n"
-            r"        if: github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name == github\.repository\n"
+            r"(?ms)^      - name: Verify PR checkout matches workflow SHA\n"
+            r"        if: github\.event_name == 'pull_request'\n"
             r"        run: ([^\n]+)",
             prepare,
         )
@@ -78,19 +68,31 @@ class RunnerWorktreeContractTests(unittest.TestCase):
             self.assertNotEqual(check(merge_sha, Path(temp, "wrong-root")), 0)
             self.assertNotEqual(check(pr_head), 0)
 
-    def test_fork_archive_contains_only_tracked_workflow_merge_tree(self):
+    def test_prepared_archive_contains_workflow_tree_and_submodules(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
         prepare = jobs["prepare-pr-worktree"]
         archive = re.search(
-            r"(?ms)^      - name: Archive fork source at workflow SHA\n"
-            r"        if: github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository\n"
-            r"        run: ([^\n]+)",
+            r"(?ms)^      - name: Archive prepared source at workflow SHA\n"
+            r"        run: \|\n((?:          [^\n]*\n)+)",
             prepare,
         )
         self.assertIsNotNone(archive)
-        with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as runner_temp:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp, "repo")
+            repo.mkdir()
+            submodule = Path(temp, "submodule")
+            submodule.mkdir()
+            runner_temp = Path(temp, "runner-temp")
+            runner_temp.mkdir()
             def git(*args):
                 return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+
+            subprocess.run(["git", "init", "-q"], cwd=submodule, check=True)
+            subprocess.run(["git", "config", "user.email", "runner-contract@example.invalid"], cwd=submodule, check=True)
+            subprocess.run(["git", "config", "user.name", "Runner Contract"], cwd=submodule, check=True)
+            Path(submodule, "nested.txt").write_text("submodule source\n")
+            subprocess.run(["git", "add", "nested.txt"], cwd=submodule, check=True)
+            subprocess.run(["git", "commit", "-qm", "submodule source"], cwd=submodule, check=True)
 
             git("init", "-q")
             git("config", "user.email", "runner-contract@example.invalid")
@@ -98,6 +100,8 @@ class RunnerWorktreeContractTests(unittest.TestCase):
             Path(repo, "tracked.txt").write_text("base\n")
             git("add", "tracked.txt")
             git("commit", "-qm", "base")
+            subprocess.run(["git", "-c", "protocol.file.allow=always", "submodule", "add", str(submodule), "vendor/fixture"], cwd=repo, check=True, capture_output=True, text=True)
+            git("commit", "-qam", "add submodule")
             git("checkout", "-qb", "pr")
             Path(repo, "tracked.txt").write_text("PR head\n")
             git("commit", "-qam", "PR head")
@@ -112,15 +116,25 @@ class RunnerWorktreeContractTests(unittest.TestCase):
             self.assertNotEqual(pr_head, merge_sha)
             Path(repo, "tracked.txt").write_text("working tree edit\n")
             Path(repo, "untracked.txt").write_text("must not ship\n")
-            env = dict(os.environ, GITHUB_SHA=merge_sha, RUNNER_TEMP=runner_temp)
-            subprocess.run(["bash", "-e", "-c", archive.group(1)], cwd=repo, env=env, check=True)
+            env = dict(os.environ, GITHUB_SHA=merge_sha, RUNNER_TEMP=str(runner_temp))
+            script = "\n".join(line[10:] for line in archive.group(1).splitlines())
+            subprocess.run(["bash", "-e", "-c", script], cwd=repo, env=env, check=True)
             with tarfile.open(Path(runner_temp, "source.tar.gz"), "r:gz") as source:
                 names = source.getnames()
-                self.assertIn("tracked.txt", names)
-                self.assertIn("target.txt", names)
-                self.assertNotIn("untracked.txt", names)
-                self.assertFalse(any(name == ".git" or name.startswith(".git/") for name in names))
-                self.assertEqual(source.extractfile("tracked.txt").read(), b"PR head\n")
+                self.assertIn("./tracked.txt", names)
+                self.assertIn("./target.txt", names)
+                self.assertIn("./vendor/fixture/nested.txt", names)
+                self.assertNotIn("./untracked.txt", names)
+                self.assertIn("./.git/HEAD", names)
+                self.assertEqual(source.extractfile("./tracked.txt").read(), b"PR head\n")
+                self.assertEqual(source.extractfile("./vendor/fixture/nested.txt").read(), b"submodule source\n")
+                extracted = Path(temp, "extracted")
+                extracted.mkdir()
+                source.extractall(extracted)
+                self.assertEqual(
+                    subprocess.run(["git", "rev-parse", "HEAD"], cwd=extracted, check=True, capture_output=True, text=True).stdout.strip(),
+                    merge_sha,
+                )
 
     def test_ci_gates_stop_on_cancellation(self):
         ci, _ = job_blocks(WORKFLOWS / "ci.yml")
@@ -132,46 +146,37 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertEqual(jobs["prepare-pr-worktree"].count("uses: actions/checkout@v4"), 1)
         prepare_checkout = re.search(
             r"(?ms)^      - uses: actions/checkout@v4\n"
-            r"        if: ([^\n]+)\n"
             r"        with:\n"
             r"          submodules: recursive\n"
+            r"          fetch-depth: 0\n"
             r"          persist-credentials: false",
             jobs["prepare-pr-worktree"],
         )
         self.assertIsNotNone(prepare_checkout)
-        self.assertEqual(
-            prepare_checkout.group(1),
-            "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository",
-        )
         for name, job in jobs.items():
             if name == "prepare-pr-worktree":
                 continue
-            if name == "quality":
-                checkout = re.search(
-                    r"(?ms)^      - uses: actions/checkout@v4\n"
-                    r"        if: ([^\n]+)\n"
-                    r"        with:\n"
-                    r"          ref: \$\{\{ github\.sha \}\}\n"
-                    r"          fetch-depth: 0\n"
-                    r"          persist-credentials: false",
-                    job,
-                )
-                self.assertIsNotNone(checkout)
-                self.assertEqual(
-                    checkout.group(1),
-                    "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository",
-                )
-            else:
-                self.assertNotIn("actions/checkout@v4", job, name)
+            self.assertNotIn("actions/checkout@v4", job, name)
+            self.assertIn("actions/download-artifact@v4", job, name)
+            self.assertIn("Unpack prepared source", job, name)
             self.assertRegex(job, r"(?m)^    needs: .*(prepare-pr-worktree)", name)
 
-    def test_same_repo_prs_use_one_stable_pr_label_and_forks_stay_hosted(self):
+    def test_pull_requests_use_hosted_runners_and_only_main_dispatch_uses_shared(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
-        for name in ("prepare-pr-worktree", "rust-test", "flutter-analyze", "flutter-test", "build-android", "build-web", "playwright-web", "build-server", "build-linux", "quality"):
+        shared_jobs = ("prepare-pr-worktree", "rust-test", "flutter-analyze", "flutter-test", "build-android", "build-web", "playwright-web", "build-server", "build-linux")
+        for name in shared_jobs:
             runs_on = next(line for line in jobs[name].splitlines() if line.startswith("    runs-on:"))
-            self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest'", runs_on)
-            self.assertTrue(pr_label(runs_on), name)
-        self.assertIn("ubuntu-latest", jobs["prepare-pr-worktree"])
+            self.assertIn("github.event_name == 'workflow_dispatch'", runs_on, name)
+            self.assertIn("github.ref == 'refs/heads/main'", runs_on, name)
+            self.assertIn("'ubuntu-latest'", runs_on, name)
+            self.assertNotIn("github.event.pull_request", runs_on, name)
+            self.assertNotIn("pr-{0}-{1}", runs_on, name)
+        release = (WORKFLOWS / "release.yml").read_text()
+        for name in ("build-linux-android-web", "create-release"):
+            runner = re.search(rf"(?ms)^  {name}:\n(.*?)(?=^  [A-Za-z0-9_-]+:|\Z)", release)
+            self.assertIsNotNone(runner)
+            self.assertIn("github.ref == 'refs/heads/main'", runner.group(1))
+            self.assertIn("'ubuntu-latest'", runner.group(1))
 
     def test_prepare_runs_once_then_publishes_source_for_hosted_jobs(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
@@ -179,7 +184,12 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("Verify runner workflow contract", prepare)
         self.assertIn("flutter pub get", prepare)
         self.assertIn("actions/upload-artifact@v4", prepare)
-        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", prepare)
+        archive = re.search(r"(?ms)^      - name: Archive prepared source at workflow SHA\n(.*?)(?=^      - )", prepare)
+        upload = re.search(r"(?m)^      - uses: actions/upload-artifact@v4\n((?:        [^\n]*\n)+)", prepare)
+        self.assertIsNotNone(archive)
+        self.assertIsNotNone(upload)
+        self.assertNotIn("        if:", archive.group(1))
+        self.assertNotIn("        if:", upload.group(1))
         self.assertNotIn("pr-{0}-{1}-run-{2}-attempt-{3}", prepare)
         self.assertNotIn("github.run_id", next(line for line in jobs["prepare-pr-worktree"].splitlines() if line.startswith("    runs-on:")))
         for name in ("golden-tests", "build-windows", "build-macos", "build-ios"):
@@ -189,18 +199,8 @@ class RunnerWorktreeContractTests(unittest.TestCase):
             self.assertIn("shell: pwsh", jobs[name], name)
             self.assertIn("$env:GITHUB_WORKSPACE", jobs[name], name)
         for name in ("rust-test", "flutter-analyze", "flutter-test", "build-android", "build-web", "playwright-web", "build-server", "build-linux"):
-            self.assertRegex(
-                jobs[name],
-                r"(?ms)actions/download-artifact@v4\n"
-                r"        if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name != github\.repository",
-                name,
-            )
-            self.assertRegex(
-                jobs[name],
-                r"(?ms)- name: Unpack prepared source\n"
-                r"        if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name != github\.repository",
-                name,
-            )
+            self.assertRegex(jobs[name], r"(?ms)actions/download-artifact@v4\n        with:", name)
+            self.assertRegex(jobs[name], r"(?ms)- name: Unpack prepared source\n        run:", name)
 
     def test_quality_pr_scan_is_in_the_same_prepared_workflow(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
@@ -210,9 +210,14 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("https://install.rguard.dev", quality)
         self.assertIn("set -o pipefail", quality)
         self.assertIn("rguard scan . --diff-only", quality)
+        self.assertIn("actions/download-artifact@v4", quality)
+        self.assertIn("Unpack prepared source", quality)
+        self.assertNotIn("actions/checkout@v4", quality)
         quality_workflow = (WORKFLOWS / "quality.yml").read_text()
         self.assertNotRegex(quality_workflow, r"(?m)^  pull_request:")
         self.assertRegex(quality_workflow, r"(?m)^  workflow_dispatch:")
+        self.assertNotIn("github.run_id", quality_workflow)
+        self.assertIn("runs-on: ubuntu-latest", quality_workflow)
 
     def test_dispatch_and_native_platforms_remain_available(self):
         ci, jobs = job_blocks(WORKFLOWS / "ci.yml")
