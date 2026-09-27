@@ -1,13 +1,18 @@
 from pathlib import Path
+from pathlib import PurePosixPath
+import io
+import inspect
 import re
 import os
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
 
 
 WORKFLOWS = Path(__file__).with_name("workflows")
+ROOT = WORKFLOWS.parent.parent
 
 def job_blocks(workflow):
     text = workflow.read_text()
@@ -19,6 +24,29 @@ def job_blocks(workflow):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(job_text)
         blocks[match.group(1)] = job_text[match.start():end]
     return text, blocks
+
+
+def safe_extract(archive, destination):
+    root = destination.resolve()
+    for member in archive.getmembers():
+        member_path = PurePosixPath(member.name)
+        if member_path.is_absolute() or ".." in member_path.parts:
+            raise ValueError(f"unsafe archive member path: {member.name}")
+        target = (root / Path(*member_path.parts)).resolve()
+        if target != root and root not in target.parents:
+            raise ValueError(f"archive member escapes destination: {member.name}")
+        if member.issym():
+            link_target = (target.parent / member.linkname).resolve()
+            if link_target != root and root not in link_target.parents:
+                raise ValueError(f"archive symlink escapes destination: {member.name}")
+        elif member.islnk():
+            raise ValueError(f"archive hard links are not supported: {member.name}")
+        elif not (member.isdir() or member.isfile()):
+            raise ValueError(f"unsupported archive member type: {member.name}")
+        if "filter" in inspect.signature(archive.extract).parameters:
+            archive.extract(member, root, filter="data")
+        else:
+            archive.extract(member, root)
 
 
 class RunnerWorktreeContractTests(unittest.TestCase):
@@ -130,16 +158,46 @@ class RunnerWorktreeContractTests(unittest.TestCase):
                 self.assertEqual(source.extractfile("./vendor/fixture/nested.txt").read(), b"submodule source\n")
                 extracted = Path(temp, "extracted")
                 extracted.mkdir()
-                source.extractall(extracted)
+                safe_extract(source, extracted)
                 self.assertEqual(
                     subprocess.run(["git", "rev-parse", "HEAD"], cwd=extracted, check=True, capture_output=True, text=True).stdout.strip(),
                     merge_sha,
                 )
 
     def test_ci_gates_stop_on_cancellation(self):
-        ci, _ = job_blocks(WORKFLOWS / "ci.yml")
+        ci, jobs = job_blocks(WORKFLOWS / "ci.yml")
         self.assertIn("cancel-in-progress: false", ci)
-        self.assertNotRegex(ci, r"(?m)^\s+if: .*always\(\)")
+        self.assertRegex(jobs["quality"], r"(?ms)- uses: actions/upload-artifact@v4\n        if: always\(\)")
+        for name, job in jobs.items():
+            if name != "quality":
+                self.assertNotRegex(job, r"(?m)^\s+if: .*always\(\)", name)
+
+    def test_safe_extract_rejects_path_traversal_and_external_symlink(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            destination = root / "extracted"
+            destination.mkdir()
+            archive_path = root / "malicious.tar"
+            with tarfile.open(archive_path, "w") as archive:
+                payload = b"escaped"
+                traversal = tarfile.TarInfo("../outside.txt")
+                traversal.size = len(payload)
+                archive.addfile(traversal, io.BytesIO(payload))
+            with tarfile.open(archive_path) as archive:
+                with self.assertRaisesRegex(ValueError, "unsafe archive member path"):
+                    safe_extract(archive, destination)
+            self.assertFalse((root / "outside.txt").exists())
+
+            archive_path = root / "symlink.tar"
+            with tarfile.open(archive_path, "w") as archive:
+                link = tarfile.TarInfo("escape")
+                link.type = tarfile.SYMTYPE
+                link.linkname = "../../outside"
+                archive.addfile(link)
+            with tarfile.open(archive_path) as archive:
+                with self.assertRaisesRegex(ValueError, "archive symlink escapes"):
+                    safe_extract(archive, destination)
+            self.assertFalse((root / "outside").exists())
 
     def test_one_prepare_checkout_feeds_every_ci_job(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
@@ -207,17 +265,52 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         quality = jobs["quality"]
         self.assertIn("needs: [prepare-pr-worktree]", quality)
         self.assertIn("if: github.event_name == 'pull_request'", quality)
-        self.assertIn("https://install.rguard.dev", quality)
-        self.assertIn("set -o pipefail", quality)
-        self.assertIn("rguard scan . --diff-only", quality)
+        self.assertIn("--locked --bin rguard", quality)
+        self.assertIn("semgrep==$SEMGREP_VERSION", quality)
+        self.assertIn("python3 scripts/ci/rguard_scan_gate.py", quality)
+        self.assertIn("RICE_GUARD_FAIL_ON: high", quality)
+        self.assertIn("rguard-report-${{ github.run_id }}-${{ github.run_attempt }}", quality)
         self.assertIn("actions/download-artifact@v4", quality)
         self.assertIn("Unpack prepared source", quality)
         self.assertNotIn("actions/checkout@v4", quality)
+        rguard_config = (ROOT / ".rguard.yaml").read_text()
+        self.assertRegex(rguard_config, r"(?ms)^scanners:.*?^  semgrep:\n    enabled: true")
+        self.assertRegex(rguard_config, r"(?ms)^tools:.*?^  scanners:\n    semgrep: true")
+        gate = (ROOT / "scripts/ci/rguard_scan_gate.py").read_text()
+        self.assertIn('["rguard", "scan", ".", "--diff-only"]', gate)
+        self.assertIn('("error", "warning")', gate)
         quality_workflow = (WORKFLOWS / "quality.yml").read_text()
+        self.assertIn("50aa1c13b9c85c7af3b76d05e6a610194e9367be", (ROOT / ".github/workflows/ci.yml").read_text())
         self.assertNotRegex(quality_workflow, r"(?m)^  pull_request:")
         self.assertRegex(quality_workflow, r"(?m)^  workflow_dispatch:")
-        self.assertNotIn("github.run_id", quality_workflow)
+        self.assertIn("rguard-report-${{ github.run_id }}-${{ github.run_attempt }}", quality_workflow)
         self.assertIn("runs-on: ubuntu-latest", quality_workflow)
+        self.assertIn("python3 scripts/ci/rguard_scan_gate.py", quality_workflow)
+        self.assertIn("50aa1c13b9c85c7af3b76d05e6a610194e9367be", quality_workflow)
+
+    def test_quality_gate_behavioral_contract(self):
+        test = subprocess.run(
+            [sys.executable, ".github/test-rguard-scan-gate.py"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(test.returncode, 0, test.stdout + test.stderr)
+
+    def test_rust_jobs_install_linux_build_dependencies(self):
+        _, jobs = job_blocks(WORKFLOWS / "ci.yml")
+        for name in ("rust-test", "build-server"):
+            self.assertIn("sudo apt-get install -y libdbus-1-dev pkg-config", jobs[name], name)
+
+    def test_playwright_starts_the_backend_artifact(self):
+        _, jobs = job_blocks(WORKFLOWS / "ci.yml")
+        playwright = jobs["playwright-web"]
+        self.assertIn("needs: [prepare-pr-worktree, build-web, build-server]", playwright)
+        self.assertIn("name: server-linux", playwright)
+        self.assertIn("CRISPY_PORT=8081 nohup", playwright)
+        self.assertIn("wait-on http://127.0.0.1:8081/health", playwright)
+        self.assertIn("crispy-server", playwright)
 
     def test_dispatch_and_native_platforms_remain_available(self):
         ci, jobs = job_blocks(WORKFLOWS / "ci.yml")

@@ -1,0 +1,70 @@
+version: "1"
+
+project:
+  name: crispy-tivi
+  languages:
+    - dart
+    - rust
+    - typescript
+  topology: monorepo
+  architecture: none
+
+scanners:
+  semgrep:
+    enabled: true
+    rulesets:
+      - p/default
+  trivy:
+    enabled: false
+    scanners: []
+  gitleaks:
+    enabled: false
+  jscpd:
+    enabled: false
+    threshold: 10
+  scc:
+    enabled: false
+
+fixers:
+  formatters: false
+  linters: false
+  security: false
+  ast: false
+  deps: false
+  unsafe: false
+
+filters:
+  include: []
+  exclude:
+    - vendor/
+    - node_modules/
+    - target/
+    - .git/
+    - .dart_tool/
+    - build/
+    - "*.generated.*"
+    - dist/
+
+tools:
+  scanners:
+    semgrep: true
+    trivy: false
+    gitleaks: false
+    jscpd: false
+    scc: false
+  fixers: {}
+
+output:
+  format: json
+  severity_threshold: warning
+  include_evidence: true
+
+hooks:
+  pre-commit:
+    enabled: false
+    manager: ""
+    checks: []
+
+ci:
+  provider: github
+  diff_only: true

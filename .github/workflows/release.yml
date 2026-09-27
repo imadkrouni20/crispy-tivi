@@ -17,6 +17,7 @@ permissions:
 env:
   FLUTTER_VERSION: "3.41.1"
   RUST_VERSION: "1.91.1"
+  RELEASE_VERSION: ${{ inputs.version }}
 
 jobs:
   # =================================================================
@@ -54,21 +55,21 @@ jobs:
         run: cd app/flutter && flutter build windows --release
 
       - name: Create MSIX package
-        run: dart run msix:create --version ${{ inputs.version }}
+        run: dart run msix:create --version $env:RELEASE_VERSION
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
       - name: Build Windows installer
-        run: iscc /DAppVersion=${{ inputs.version }} scripts/inno_setup.iss
+        run: iscc /DAppVersion=$env:RELEASE_VERSION scripts/inno_setup.iss
 
       - name: Rename artifacts
         shell: bash
         run: |
           mv build/windows/x64/runner/Release/CrispyTivi.msix \
-            "CrispyTivi-${{ inputs.version }}.msix" 2>/dev/null || true
+            "CrispyTivi-$RELEASE_VERSION.msix" 2>/dev/null || true
           mv build/windows/x64/runner/Release/*.msix \
-            "CrispyTivi-${{ inputs.version }}.msix" 2>/dev/null || true
+            "CrispyTivi-$RELEASE_VERSION.msix" 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         with:
@@ -124,7 +125,7 @@ jobs:
             --window-size 600 400 \
             --app-drop-link 400 200 \
             --icon-size 100 \
-            "CrispyTivi-${{ inputs.version }}.dmg" \
+            "CrispyTivi-$RELEASE_VERSION.dmg" \
             "build/macos/Build/Products/Release/crispy_tivi.app"
 
       # ── iOS ──
@@ -139,7 +140,7 @@ jobs:
           cd build/ios/archive/Runner.xcarchive/Products/Applications
           mkdir Payload
           cp -r Runner.app Payload/
-          zip -r "$GITHUB_WORKSPACE/CrispyTivi-${{ inputs.version }}.ipa" Payload
+          zip -r "$GITHUB_WORKSPACE/CrispyTivi-$RELEASE_VERSION.ipa" Payload
 
       - uses: actions/upload-artifact@v4
         with:
@@ -218,11 +219,11 @@ jobs:
         run: cd app/flutter && flutter build linux --release
 
       - name: Create AppImage
-        run: bash scripts/build_appimage.sh ${{ inputs.version }}
+        run: bash scripts/build_appimage.sh "$RELEASE_VERSION"
 
       - name: Create .deb package
         run: |
-          PKG_DIR="crispy-tivi_${{ inputs.version }}_amd64"
+          PKG_DIR="crispy-tivi_${RELEASE_VERSION}_amd64"
           mkdir -p "$PKG_DIR/DEBIAN"
           mkdir -p "$PKG_DIR/usr/bin"
           mkdir -p "$PKG_DIR/usr/lib/crispy-tivi"
@@ -231,7 +232,7 @@ jobs:
 
           cat > "$PKG_DIR/DEBIAN/control" << CTRL
           Package: crispy-tivi
-          Version: ${{ inputs.version }}
+          Version: $RELEASE_VERSION
           Section: video
           Priority: optional
           Architecture: amd64
@@ -268,7 +269,7 @@ jobs:
           DESKTOP
 
           dpkg-deb --build "$PKG_DIR"
-          mv "${PKG_DIR}.deb" "CrispyTivi-${{ inputs.version }}-amd64.deb"
+          mv "${PKG_DIR}.deb" "CrispyTivi-${RELEASE_VERSION}-amd64.deb"
 
       # ── Android ──
       - name: Build Rust for Android
@@ -283,9 +284,9 @@ jobs:
       - name: Rename Android artifacts
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk \
-            "CrispyTivi-${{ inputs.version }}.apk"
+            "CrispyTivi-$RELEASE_VERSION.apk"
           cp build/app/outputs/bundle/release/app-release.aab \
-            "CrispyTivi-${{ inputs.version }}.aab"
+            "CrispyTivi-$RELEASE_VERSION.aab"
 
       # ── Web ──
       - name: Build Web
@@ -294,7 +295,7 @@ jobs:
       - name: Zip web build
         run: |
           cd app/flutter/build/web
-          zip -r "../../CrispyTivi-${{ inputs.version }}-web.zip" .
+          zip -r "../../CrispyTivi-$RELEASE_VERSION-web.zip" .
 
       - uses: actions/upload-artifact@v4
         with:
@@ -331,7 +332,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ inputs.version }}" \
-            --title "CrispyTivi v${{ inputs.version }}" \
+          gh release create "v$RELEASE_VERSION" \
+            --title "CrispyTivi v$RELEASE_VERSION" \
             --generate-notes \
             release-artifacts/*
