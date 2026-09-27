@@ -33,7 +33,7 @@ jobs:
   # Prepare shared-tree dependency files once before Linux jobs fan out.
   prepare-pr-worktree:
     name: Prepare PR Worktree
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     steps:
       - uses: actions/checkout@v4
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
@@ -55,10 +55,8 @@ jobs:
       - name: Archive fork source at workflow SHA
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         run: git archive "$GITHUB_SHA" | gzip -n -c > "$RUNNER_TEMP/source.tar.gz"
-      - name: Archive prepared tracked source at workflow SHA
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        run: git archive "$GITHUB_SHA" | gzip -n -c > "$RUNNER_TEMP/source.tar.gz"
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         with:
           name: source-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/source.tar.gz
@@ -68,7 +66,7 @@ jobs:
   quality:
     name: quality
     if: github.event_name == 'pull_request'
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     needs: [prepare-pr-worktree]
     steps:
       - uses: actions/checkout@v4
@@ -93,7 +91,7 @@ jobs:
   # ── Rust Tests ──────────────────────────────────
   rust-test:
     name: Rust Tests
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     needs: [prepare-pr-worktree]
     steps:
       - uses: actions/download-artifact@v4
@@ -151,7 +149,7 @@ jobs:
   # ── Flutter Analyze ─────────────────────────────
   flutter-analyze:
     name: Flutter Analyze
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     needs: [prepare-pr-worktree]
     steps:
       - uses: actions/download-artifact@v4
@@ -178,7 +176,7 @@ jobs:
   # ── Flutter Tests ───────────────────────────────
   flutter-test:
     name: Flutter Tests
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     needs: [prepare-pr-worktree, flutter-analyze]
     steps:
       - uses: actions/download-artifact@v4
@@ -312,7 +310,7 @@ jobs:
   # ── Build Android ───────────────────────────────
   build-android:
     name: Build Android
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     needs: [prepare-pr-worktree, rust-test, flutter-analyze]
     steps:
       - uses: actions/download-artifact@v4
@@ -366,7 +364,7 @@ jobs:
   # ── Build Web ───────────────────────────────────
   build-web:
     name: Build Web
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     needs: [prepare-pr-worktree, flutter-analyze]
     steps:
       - uses: actions/download-artifact@v4
@@ -394,7 +392,7 @@ jobs:
   # ── Playwright Web Tests ────────────────────────
   playwright-web:
     name: Playwright Web Tests
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     needs: [prepare-pr-worktree, build-web]
     steps:
       - uses: actions/download-artifact@v4
@@ -433,7 +431,7 @@ jobs:
   # ── Build Server ────────────────────────────────
   build-server:
     name: Build Server
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     needs: [prepare-pr-worktree, rust-test]
     steps:
       - uses: actions/download-artifact@v4
@@ -468,7 +466,7 @@ jobs:
   # ── Build Linux ─────────────────────────────────
   build-linux:
     name: Build Linux
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}"]', github.repository_id, github.event.pull_request.number)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     needs: [prepare-pr-worktree, rust-test, flutter-analyze]
     continue-on-error: true
     steps:

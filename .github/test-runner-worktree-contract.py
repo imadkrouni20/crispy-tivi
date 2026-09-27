@@ -22,13 +22,11 @@ def job_blocks(workflow):
 
 
 def pr_label(expression):
-    return f"pr-{{0}}-{{1}}-run-{{2}}-attempt-{{3}}" in expression and all(
+    return f"pr-{{0}}-{{1}}" in expression and all(
         context in expression
         for context in (
             "github.repository_id",
             "github.event.pull_request.number",
-            "github.run_id",
-            "github.run_attempt",
         )
     )
 
@@ -90,13 +88,6 @@ class RunnerWorktreeContractTests(unittest.TestCase):
             prepare,
         )
         self.assertIsNotNone(archive)
-        prepared_archive = re.search(
-            r"(?ms)^      - name: Archive prepared tracked source at workflow SHA\n"
-            r"        if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository\n"
-            r"        run: ([^\n]+)",
-            prepare,
-        )
-        self.assertIsNotNone(prepared_archive)
         with tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as runner_temp:
             def git(*args):
                 return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
@@ -122,15 +113,14 @@ class RunnerWorktreeContractTests(unittest.TestCase):
             Path(repo, "tracked.txt").write_text("working tree edit\n")
             Path(repo, "untracked.txt").write_text("must not ship\n")
             env = dict(os.environ, GITHUB_SHA=merge_sha, RUNNER_TEMP=runner_temp)
-            for command in (archive.group(1), prepared_archive.group(1)):
-                subprocess.run(["bash", "-e", "-c", command], cwd=repo, env=env, check=True)
-                with tarfile.open(Path(runner_temp, "source.tar.gz"), "r:gz") as source:
-                    names = source.getnames()
-                    self.assertIn("tracked.txt", names)
-                    self.assertIn("target.txt", names)
-                    self.assertNotIn("untracked.txt", names)
-                    self.assertFalse(any(name == ".git" or name.startswith(".git/") for name in names))
-                    self.assertEqual(source.extractfile("tracked.txt").read(), b"PR head\n")
+            subprocess.run(["bash", "-e", "-c", archive.group(1)], cwd=repo, env=env, check=True)
+            with tarfile.open(Path(runner_temp, "source.tar.gz"), "r:gz") as source:
+                names = source.getnames()
+                self.assertIn("tracked.txt", names)
+                self.assertIn("target.txt", names)
+                self.assertNotIn("untracked.txt", names)
+                self.assertFalse(any(name == ".git" or name.startswith(".git/") for name in names))
+                self.assertEqual(source.extractfile("tracked.txt").read(), b"PR head\n")
 
     def test_ci_gates_stop_on_cancellation(self):
         ci, _ = job_blocks(WORKFLOWS / "ci.yml")
@@ -175,7 +165,7 @@ class RunnerWorktreeContractTests(unittest.TestCase):
                 self.assertNotIn("actions/checkout@v4", job, name)
             self.assertRegex(job, r"(?m)^    needs: .*(prepare-pr-worktree)", name)
 
-    def test_same_repo_prs_use_exact_per_run_attempt_label_and_forks_stay_hosted(self):
+    def test_same_repo_prs_use_one_stable_pr_label_and_forks_stay_hosted(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
         for name in ("prepare-pr-worktree", "rust-test", "flutter-analyze", "flutter-test", "build-android", "build-web", "playwright-web", "build-server", "build-linux", "quality"):
             runs_on = next(line for line in jobs[name].splitlines() if line.startswith("    runs-on:"))
@@ -189,7 +179,9 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("Verify runner workflow contract", prepare)
         self.assertIn("flutter pub get", prepare)
         self.assertIn("actions/upload-artifact@v4", prepare)
-        self.assertIn("source-${{ github.run_id }}-${{ github.run_attempt }}", prepare)
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", prepare)
+        self.assertNotIn("pr-{0}-{1}-run-{2}-attempt-{3}", prepare)
+        self.assertNotIn("github.run_id", next(line for line in jobs["prepare-pr-worktree"].splitlines() if line.startswith("    runs-on:")))
         for name in ("golden-tests", "build-windows", "build-macos", "build-ios"):
             self.assertIn("actions/download-artifact@v4", jobs[name], name)
             self.assertIn("Unpack prepared source", jobs[name], name)
@@ -197,7 +189,18 @@ class RunnerWorktreeContractTests(unittest.TestCase):
             self.assertIn("shell: pwsh", jobs[name], name)
             self.assertIn("$env:GITHUB_WORKSPACE", jobs[name], name)
         for name in ("rust-test", "flutter-analyze", "flutter-test", "build-android", "build-web", "playwright-web", "build-server", "build-linux"):
-            self.assertIn("actions/download-artifact@v4", jobs[name], name)
+            self.assertRegex(
+                jobs[name],
+                r"(?ms)actions/download-artifact@v4\n"
+                r"        if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name != github\.repository",
+                name,
+            )
+            self.assertRegex(
+                jobs[name],
+                r"(?ms)- name: Unpack prepared source\n"
+                r"        if: github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name != github\.repository",
+                name,
+            )
 
     def test_quality_pr_scan_is_in_the_same_prepared_workflow(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
