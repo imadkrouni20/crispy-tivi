@@ -2,6 +2,10 @@
 """Behavioral contract for the pinned rice-guard quality gate adapter."""
 
 import importlib.util
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -14,6 +18,27 @@ spec.loader.exec_module(gate)
 
 
 class RGuardScanGateTests(unittest.TestCase):
+    def test_semgrep_wrapper_forwards_results_and_preserves_stderr(self):
+        wrapper = ROOT / ".github/semgrep-with-log.py"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary = root / "semgrep-fixture"
+            binary.write_text("#!/bin/sh\nprintf 'report\\n'\nprintf 'diagnostic\\n' >&2\nexit 7\n")
+            binary.chmod(0o755)
+            log = root / "semgrep-stderr.log"
+            env = dict(os.environ, SEMGREP_BINARY=str(binary), SEMGREP_LOG_PATH=str(log))
+            result = subprocess.run(
+                [sys.executable, str(wrapper), "--json"],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 7)
+            self.assertEqual(result.stdout, "report\n")
+            self.assertIn("diagnostic\n", result.stderr)
+            self.assertEqual(log.read_text(), "diagnostic\n")
+
     def test_error_findings_fail_high_threshold_but_warning_does_not(self):
         fail, reason = gate.should_fail(
             1,

@@ -135,7 +135,7 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt, clippy
       - name: Install Linux Rust build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring libdbus-1-dev pkg-config
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
@@ -146,7 +146,7 @@ jobs:
       - name: cargo test (threshold-enforced)
         run: |
           set +e
-          output=$(cargo test --workspace 2>&1)
+          output=$(dbus-run-session -- bash -e -c 'printf "ci-test-keyring\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null; cargo test --workspace' 2>&1)
           exit_code=$?
           set -e
           echo "$output"

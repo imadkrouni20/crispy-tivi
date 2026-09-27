@@ -301,7 +301,11 @@ class RunnerWorktreeContractTests(unittest.TestCase):
     def test_rust_jobs_install_linux_build_dependencies(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
         for name in ("rust-test", "build-server"):
-            self.assertIn("sudo apt-get install -y libdbus-1-dev pkg-config", jobs[name], name)
+            self.assertIn("sudo apt-get install -y", jobs[name], name)
+            self.assertIn("libdbus-1-dev pkg-config", jobs[name], name)
+        self.assertIn("dbus-x11 gnome-keyring", jobs["rust-test"])
+        self.assertIn("dbus-run-session -- bash -e -c", jobs["rust-test"])
+        self.assertIn("gnome-keyring-daemon --unlock --components=secrets", jobs["rust-test"])
 
     def test_playwright_starts_the_backend_artifact(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
