@@ -28,6 +28,7 @@ import '../../domain/constants/search_source_key.dart';
 import '../providers/search_providers.dart';
 import '../widgets/search_body.dart';
 import '../widgets/search_filter_sheet.dart';
+
 // TvSearchPanel removed — desktop/TV uses same SearchBody as compact.
 
 // ── UI dimension constants ────────────────────────────────────────────────────
