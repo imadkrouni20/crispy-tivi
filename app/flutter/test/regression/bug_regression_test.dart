@@ -5,6 +5,7 @@ import 'package:crispy_tivi/core/data/memory_backend.dart';
 import 'package:crispy_tivi/features/iptv/domain/entities/channel.dart';
 import 'package:crispy_tivi/features/player/presentation/providers/player_mode_provider.dart';
 import 'package:crispy_tivi/features/vod/domain/entities/vod_item.dart';
+
 // VodType is exported from vod_item.dart (same file)
 
 /// Regression tests covering BUG-001 through BUG-009.
