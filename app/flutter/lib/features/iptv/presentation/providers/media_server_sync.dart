@@ -136,7 +136,7 @@ class MediaServerSyncService {
                 : MediaServerType.jellyfin,
       );
 
-      return _syncMediaServer(
+      return await _syncMediaServer(
         source: activeSource,
         fetchLibraries: () => server.getLibrary(null),
         fetchPage:
@@ -169,7 +169,7 @@ class MediaServerSyncService {
         serverId: source.id,
       );
 
-      return _syncMediaServer(
+      return await _syncMediaServer(
         source: source,
         fetchLibraries: () => server.getLibrary(null),
         fetchPage:
