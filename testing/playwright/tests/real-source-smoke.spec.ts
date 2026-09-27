@@ -11,9 +11,7 @@ import {
 } from "../helpers/selectors";
 import { filterAppErrors } from "./helpers/error-filter";
 
-const DB_PATH =
-  process.env.CRISPY_DB_PATH ??
-  "/home/mkh/.crispytivi/data/crispy_tivi_v2.sqlite";
+const DB_PATH = process.env.CRISPY_DB_PATH;
 
 const REPORT_DIR = path.join(__dirname, "..", "..", "reports");
 const NAV_COORDS: Record<string, [number, number]> = {
@@ -92,6 +90,29 @@ test.describe("Real Source Smoke", () => {
   test("guide, movies, series, search, and core navigation stay healthy", async ({
     page,
   }) => {
+    if (!DB_PATH) {
+      throw new Error(
+        "CRISPY_DB_PATH must point to the isolated Playwright fixture database",
+      );
+    }
+
+    await page.route(/\/proxy\?url=/, async (route) => {
+      const target = new URL(route.request().url()).searchParams.get("url");
+      if (
+        !target?.includes("playwright-fixture.invalid") ||
+        !target.includes("action=get_series_info")
+      ) {
+        await route.continue();
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ info: {}, episodes: {} }),
+      });
+    });
+
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
     const logLines: string[] = [];

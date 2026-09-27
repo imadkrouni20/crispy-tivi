@@ -330,6 +330,8 @@ jobs:
           cache: true
       - run: cd app/flutter && flutter pub get
       - run: cd app/flutter && flutter build windows --release
+        env:
+          CXXFLAGS: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
       - name: Run integration tests
         run: |
           cd app/flutter && flutter test integration_test/flows/channel_browse_test.dart -d windows
@@ -450,7 +452,9 @@ jobs:
           name: server-linux
           path: ${{ runner.temp }}/server
       - name: Pick a free port
-        run: echo "CRISPY_WEB_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+        run: |
+          echo "CRISPY_WEB_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')" >> "$GITHUB_ENV"
+          echo "CRISPY_DB_PATH=$RUNNER_TEMP/crispy-playwright-data/crispy_tivi_v2.sqlite" >> "$GITHUB_ENV"
       - name: Serve web app
         run: npx -y http-server app/flutter/build/web -p "$CRISPY_WEB_PORT" -a 127.0.0.1 -c-1 --cors &
       - name: Wait for server
@@ -458,9 +462,12 @@ jobs:
       - name: Start backend server
         run: |
           chmod +x "$RUNNER_TEMP/server/crispy-server"
-          CRISPY_PORT=8081 nohup "$RUNNER_TEMP/server/crispy-server" > "$RUNNER_TEMP/crispy-server.log" 2>&1 &
+          mkdir -p "$(dirname "$CRISPY_DB_PATH")"
+          CRISPY_PORT=8081 CRISPY_DB_PATH="$CRISPY_DB_PATH" nohup "$RUNNER_TEMP/server/crispy-server" > "$RUNNER_TEMP/crispy-server.log" 2>&1 &
       - name: Wait for backend server
         run: npx -y wait-on http://127.0.0.1:8081/health --timeout 60000
+      - name: Seed Playwright database fixture
+        run: python3 scripts/ci/seed_playwright_db.py "$CRISPY_DB_PATH"
       - uses: actions/setup-node@v4
         with:
           node-version: 20

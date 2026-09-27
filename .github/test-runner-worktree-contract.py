@@ -333,8 +333,10 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         playwright = jobs["playwright-web"]
         self.assertIn("needs: [prepare-pr-worktree, build-web, build-server]", playwright)
         self.assertIn("name: server-linux", playwright)
-        self.assertIn("CRISPY_PORT=8081 nohup", playwright)
+        self.assertIn('CRISPY_PORT=8081 CRISPY_DB_PATH="$CRISPY_DB_PATH" nohup', playwright)
         self.assertIn("wait-on http://127.0.0.1:8081/health", playwright)
+        self.assertIn("CRISPY_DB_PATH=$RUNNER_TEMP/crispy-playwright-data/crispy_tivi_v2.sqlite", playwright)
+        self.assertIn("seed_playwright_db.py", playwright)
         self.assertIn("crispy-server", playwright)
         self.assertIn("npx playwright install --with-deps chromium", playwright)
 
@@ -347,6 +349,23 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("flutter build ios --simulator --no-codesign", jobs["build-ios"])
         self.assertIn("bash scripts/build_rust.sh ios-simulator", jobs["build-ios"])
         self.assertIn("aarch64-apple-ios-sim", jobs["build-ios"])
+        ios_podfile = (ROOT / "app/flutter/ios/Podfile").read_text()
+        macos_podfile = (ROOT / "app/flutter/macos/Podfile").read_text()
+        self.assertIn('bash "$SRCROOT/../../../scripts/build_rust.sh" "$rust_platform"', ios_podfile)
+        self.assertIn("PLATFORM_NAME", ios_podfile)
+        self.assertIn('bash "$SRCROOT/../../../scripts/build_rust.sh" macos', macos_podfile)
+        self.assertIn(
+            "CXXFLAGS: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS",
+            jobs["build-windows"],
+        )
+        seed_test = subprocess.run(
+            [sys.executable, "scripts/ci/test_seed_playwright_db.py"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(seed_test.returncode, 0, seed_test.stdout + seed_test.stderr)
         self.assertRegex((WORKFLOWS / "release.yml").read_text(), r"(?m)^  workflow_dispatch:")
 
 
