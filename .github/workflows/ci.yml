@@ -100,12 +100,28 @@ jobs:
           cargo install --git https://github.com/moabualruz/rice-guard --rev "$RGUARD_REV" --locked --bin rguard --root "$RUNNER_TEMP/rguard"
           echo "$RUNNER_TEMP/rguard/bin" >> "$GITHUB_PATH"
           python -m pip install "semgrep==$SEMGREP_VERSION"
+          echo "SEMGREP_BINARY=$(command -v semgrep)" >> "$GITHUB_ENV"
+          echo "SEMGREP_LOG_PATH=$RUNNER_TEMP/semgrep-stderr.log" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/semgrep-wrapper"
+          cat > "$RUNNER_TEMP/semgrep-wrapper/semgrep" <<'SH'
+          #!/bin/sh
+          exec python3 "$GITHUB_WORKSPACE/.github/semgrep-with-log.py" "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/semgrep-wrapper/semgrep"
+          echo "$RUNNER_TEMP/semgrep-wrapper" >> "$GITHUB_PATH"
       - name: Verify rice-guard installation
-        run: rguard --version
+        run: rguard --version && semgrep --version
       - name: Scan
         run: python3 scripts/ci/rguard_scan_gate.py
         env:
           RICE_GUARD_FAIL_ON: high
+      - name: Preserve scanner diagnostics
+        if: always()
+        run: |
+          if [ -f "$SEMGREP_LOG_PATH" ]; then
+            mkdir -p reports/crispy-tivi/scanner-logs
+            cp "$SEMGREP_LOG_PATH" reports/crispy-tivi/scanner-logs/semgrep-stderr.log
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -146,7 +162,13 @@ jobs:
       - name: cargo test (threshold-enforced)
         run: |
           set +e
-          output=$(dbus-run-session -- bash -e -c 'printf "ci-test-keyring\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null; cargo test --workspace' 2>&1)
+          keyring_home="$RUNNER_TEMP/keyring-home"
+          keyring_config="$keyring_home/config"
+          keyring_data="$keyring_home/data"
+          keyring_runtime="$RUNNER_TEMP/keyring-runtime"
+          mkdir -p "$keyring_home" "$keyring_config" "$keyring_data" "$keyring_runtime" || exit $?
+          chmod 700 "$keyring_home" "$keyring_config" "$keyring_data" "$keyring_runtime" || exit $?
+          output=$(HOME="$keyring_home" XDG_CONFIG_HOME="$keyring_config" XDG_DATA_HOME="$keyring_data" XDG_RUNTIME_DIR="$keyring_runtime" dbus-run-session -- bash -e -c 'printf "ci-test-keyring\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null; cargo test --workspace' 2>&1)
           exit_code=$?
           set -e
           echo "$output"
@@ -295,8 +317,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
-      - name: Install Linux Rust build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust

@@ -298,6 +298,13 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         )
         self.assertEqual(test.returncode, 0, test.stdout + test.stderr)
 
+    def test_pr_quality_job_preserves_semgrep_child_diagnostics(self):
+        _, jobs = job_blocks(WORKFLOWS / "ci.yml")
+        quality = jobs["quality"]
+        self.assertIn(".github/semgrep-with-log.py", quality)
+        self.assertIn("Preserve scanner diagnostics", quality)
+        self.assertIn("rguard-report-${{ github.run_id }}-${{ github.run_attempt }}", quality)
+
     def test_rust_jobs_install_linux_build_dependencies(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
         for name in ("rust-test", "build-server"):
@@ -306,6 +313,8 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("dbus-x11 gnome-keyring", jobs["rust-test"])
         self.assertIn("dbus-run-session -- bash -e -c", jobs["rust-test"])
         self.assertIn("gnome-keyring-daemon --unlock --components=secrets", jobs["rust-test"])
+        self.assertIn('HOME="$keyring_home"', jobs["rust-test"])
+        self.assertIn('XDG_RUNTIME_DIR="$keyring_runtime"', jobs["rust-test"])
 
     def test_playwright_starts_the_backend_artifact(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
