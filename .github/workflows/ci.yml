@@ -12,8 +12,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 
 env:
   FLUTTER_VERSION: "3.41.1"
@@ -30,6 +30,62 @@ env:
   FLUTTER_TEST_THRESHOLD: 3120 # actual ~3285 as of 2026-03-13
 
 jobs:
+  # Prepare shared-tree dependency files once before Linux jobs fan out.
+  prepare-pr-worktree:
+    name: Prepare PR Worktree
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Verify runner workflow contract
+        run: python3 .github/test-runner-worktree-contract.py
+      - name: Verify brokered PR checkout matches workflow SHA
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: test "$(realpath "$GITHUB_WORKSPACE")" = "$(git rev-parse --show-toplevel)" && test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Prepare Flutter dependencies in the shared worktree
+        run: cd app/flutter && flutter pub get
+      - name: Archive fork source at workflow SHA
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: git archive "$GITHUB_SHA" | gzip -n -c > "$RUNNER_TEMP/source.tar.gz"
+      - name: Archive prepared tracked source at workflow SHA
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: git archive "$GITHUB_SHA" | gzip -n -c > "$RUNNER_TEMP/source.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  quality:
+    name: quality
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    needs: [prepare-pr-worktree]
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install rice-guard
+        run: |
+          set -o pipefail
+          curl -fsSL https://install.rguard.dev | bash
+      - name: Scan
+        run: rguard scan . --diff-only
+        env:
+          RICE_GUARD_FAIL_ON: high
+
   # =================================================================
   # === TIER 0: Fast Gates (always required, run first) =============
   # =================================================================
@@ -37,16 +93,23 @@ jobs:
   # ── Rust Tests ──────────────────────────────────
   rust-test:
     name: Rust Tests
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    needs: [prepare-pr-worktree]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
           workspaces: rust
           prefix-key: v2
@@ -88,17 +151,24 @@ jobs:
   # ── Flutter Analyze ─────────────────────────────
   flutter-analyze:
     name: Flutter Analyze
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    needs: [prepare-pr-worktree]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       - run: cd app/flutter && flutter pub get
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
       - name: Dart format check
         run: cd app/flutter && dart format --set-exit-if-changed lib/ test/
       - run: bash scripts/ci/flutter_analyze.sh
@@ -108,18 +178,24 @@ jobs:
   # ── Flutter Tests ───────────────────────────────
   flutter-test:
     name: Flutter Tests
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","generic"]') }}
-    needs: flutter-analyze
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    needs: [prepare-pr-worktree, flutter-analyze]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       - run: cd app/flutter && flutter pub get
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
       - name: Run tests with coverage (threshold-enforced)
         run: |
           set +e
@@ -144,7 +220,7 @@ jobs:
             exit 1
           fi
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
         with:
           name: lcov-coverage
           path: app/flutter/coverage/lcov.info
@@ -158,11 +234,15 @@ jobs:
   golden-tests:
     name: Golden Tests
     runs-on: windows-latest
-    needs: flutter-analyze
+    needs: [prepare-pr-worktree, flutter-analyze]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        shell: pwsh
+        run: tar -xzf "$env:RUNNER_TEMP/source/source.tar.gz" -C "$env:GITHUB_WORKSPACE"
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -182,11 +262,15 @@ jobs:
   build-windows:
     name: Build Windows
     runs-on: windows-latest
-    needs: [rust-test, flutter-analyze]
+    needs: [prepare-pr-worktree, rust-test, flutter-analyze]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        shell: pwsh
+        run: tar -xzf "$env:RUNNER_TEMP/source/source.tar.gz" -C "$env:GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -228,12 +312,17 @@ jobs:
   # ── Build Android ───────────────────────────────
   build-android:
     name: Build Android
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","generic"]') }}
-    needs: [rust-test, flutter-analyze]
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    needs: [prepare-pr-worktree, rust-test, flutter-analyze]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -242,6 +331,7 @@ jobs:
             armv7-linux-androideabi,
             x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
           workspaces: rust
           prefix-key: v2
@@ -265,6 +355,7 @@ jobs:
       - name: Build Rust for Android
         run: bash scripts/build_rust.sh android
       - run: cd app/flutter && flutter pub get
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
       - run: cd app/flutter && flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
@@ -275,18 +366,24 @@ jobs:
   # ── Build Web ───────────────────────────────────
   build-web:
     name: Build Web
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","generic"]') }}
-    needs: flutter-analyze
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    needs: [prepare-pr-worktree, flutter-analyze]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       - run: cd app/flutter && flutter pub get
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
       - run: cd app/flutter && flutter build web --release
       - uses: actions/upload-artifact@v4
         with:
@@ -297,13 +394,19 @@ jobs:
   # ── Playwright Web Tests ────────────────────────
   playwright-web:
     name: Playwright Web Tests
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","generic"]') }}
-    needs: [build-web]
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    needs: [prepare-pr-worktree, build-web]
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        with:
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
+      - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
           name: web-release
           path: app/flutter/build/web/
@@ -330,16 +433,22 @@ jobs:
   # ── Build Server ────────────────────────────────
   build-server:
     name: Build Server
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","generic"]') }}
-    needs: rust-test
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    needs: [prepare-pr-worktree, rust-test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
           workspaces: rust
           prefix-key: v2
@@ -359,17 +468,23 @@ jobs:
   # ── Build Linux ─────────────────────────────────
   build-linux:
     name: Build Linux
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","generic"]') }}
-    needs: [rust-test, flutter-analyze]
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    needs: [prepare-pr-worktree, rust-test, flutter-analyze]
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
         with:
           workspaces: rust
           prefix-key: v2
@@ -387,6 +502,7 @@ jobs:
             libgtk-3-dev pkg-config \
             libmpv-dev
       - run: cd app/flutter && flutter pub get
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
       - run: cd app/flutter && flutter build linux --release
       - uses: actions/upload-artifact@v4
         with:
@@ -398,12 +514,15 @@ jobs:
   build-macos:
     name: Build macOS
     runs-on: macos-latest
-    needs: [rust-test, flutter-analyze]
+    needs: [prepare-pr-worktree, rust-test, flutter-analyze]
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -444,12 +563,15 @@ jobs:
   build-ios:
     name: Build iOS
     runs-on: macos-latest
-    needs: [rust-test, flutter-analyze]
+    needs: [prepare-pr-worktree, rust-test, flutter-analyze]
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          submodules: recursive
+          name: source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source
+      - name: Unpack prepared source
+        run: tar -xzf "$RUNNER_TEMP/source/source.tar.gz" -C "$GITHUB_WORKSPACE"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}

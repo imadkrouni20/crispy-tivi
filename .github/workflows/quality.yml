@@ -1,16 +1,17 @@
 name: Code Quality
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 jobs:
   quality:
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","generic"]') }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-latest' || github.event_name == 'pull_request' && fromJSON(format('["self-hosted","linux","x64","generic","pr-{0}-{1}-run-{2}-attempt-{3}"]', github.repository_id, github.event.pull_request.number, github.run_id, github.run_attempt)) || fromJSON('["self-hosted","linux","x64","generic"]') }}
     steps:
       - uses: actions/checkout@v4
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
       - name: Install rice-guard
-        run: curl -fsSL https://install.rice-guard.dev | sh
+        run: |
+          set -o pipefail
+          curl -fsSL https://install.rguard.dev | bash
       - name: Scan
-        run: rice-guard scan . --diff-only
+        run: rguard scan . --diff-only
         env:
           RICE_GUARD_FAIL_ON: high
