@@ -465,7 +465,7 @@ jobs:
         with:
           node-version: 20
       - name: Install Playwright
-        run: cd testing/playwright && npm ci
+        run: cd testing/playwright && npm ci && npx playwright install --with-deps chromium
       - name: Run Playwright tests
         run: cd testing/playwright && npx playwright test --workers=4
       - uses: actions/upload-artifact@v4
@@ -615,7 +615,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
-          targets: aarch64-apple-ios
+          targets: aarch64-apple-ios-sim
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
@@ -626,11 +626,11 @@ jobs:
           channel: stable
           cache: true
       - name: Build Rust for iOS
-        run: bash scripts/build_rust.sh ios
+        run: bash scripts/build_rust.sh ios-simulator
       - run: cd app/flutter && flutter pub get
-      - run: cd app/flutter && flutter build ios --no-codesign
+      - run: cd app/flutter && flutter build ios --simulator --no-codesign
       - uses: actions/upload-artifact@v4
         with:
           name: ios-release
-          path: app/flutter/build/ios/iphoneos/
+          path: app/flutter/build/ios/iphonesimulator/
           retention-days: 7

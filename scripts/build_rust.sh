@@ -6,7 +6,7 @@
 # Usage:
 #   ./scripts/build_rust.sh [platform] [profile]
 #
-# Platforms: windows, linux, macos, android, ios, server
+# Platforms: windows, linux, macos, android, ios, ios-simulator, server
 # Profiles:  debug, release (default: release)
 #
 # Examples:
@@ -123,6 +123,23 @@ build_ios() {
   echo "==> Copied to app/flutter/ios/Frameworks/"
 }
 
+build_ios_simulator() {
+  echo "==> Building crispy-ffi for iOS simulator (aarch64)..."
+  cd "$RUST_DIR"
+
+  rustup target add aarch64-apple-ios-sim 2>/dev/null || true
+  cargo build -p crispy-ffi $CARGO_FLAG \
+    --target aarch64-apple-ios-sim
+
+  local lib_path="target/aarch64-apple-ios-sim/$CARGO_PROFILE/libcrispy_ffi.a"
+  echo "==> Built: $lib_path"
+
+  local fw_dir="$FLUTTER_APP_DIR/ios/Frameworks"
+  mkdir -p "$fw_dir"
+  cp "$lib_path" "$fw_dir/"
+  echo "==> Copied to app/flutter/ios/Frameworks/"
+}
+
 build_android() {
   echo "==> Building crispy-ffi for Android..."
   cd "$RUST_DIR"
@@ -164,6 +181,7 @@ windows) build_windows ;;
 linux) build_linux ;;
 macos) build_macos ;;
 ios) build_ios ;;
+ios-simulator) build_ios_simulator ;;
 android) build_android ;;
 server) build_server ;;
 all)

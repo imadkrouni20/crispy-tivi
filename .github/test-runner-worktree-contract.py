@@ -336,6 +336,7 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("CRISPY_PORT=8081 nohup", playwright)
         self.assertIn("wait-on http://127.0.0.1:8081/health", playwright)
         self.assertIn("crispy-server", playwright)
+        self.assertIn("npx playwright install --with-deps chromium", playwright)
 
     def test_dispatch_and_native_platforms_remain_available(self):
         ci, jobs = job_blocks(WORKFLOWS / "ci.yml")
@@ -343,6 +344,9 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertRegex(ci, r"(?m)^  workflow_dispatch:")
         for name, platform in (("golden-tests", "windows-latest"), ("build-windows", "windows-latest"), ("build-macos", "macos-latest"), ("build-ios", "macos-latest")):
             self.assertIn(f"runs-on: {platform}", jobs[name], name)
+        self.assertIn("flutter build ios --simulator --no-codesign", jobs["build-ios"])
+        self.assertIn("bash scripts/build_rust.sh ios-simulator", jobs["build-ios"])
+        self.assertIn("aarch64-apple-ios-sim", jobs["build-ios"])
         self.assertRegex((WORKFLOWS / "release.yml").read_text(), r"(?m)^  workflow_dispatch:")
 
 
