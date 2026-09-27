@@ -32,8 +32,8 @@ void main() {
       await pumpAppReady(tester);
 
       // The profile selection screen should show
-      // the "Who's watching?" header text.
-      expect(find.text("Who's watching?"), findsOneWidget);
+      // the "Who's Watching?" header text.
+      expect(find.text("Who's Watching?"), findsOneWidget);
 
       // Default profile should exist.
       expect(find.text('Default'), findsWidgets);
@@ -100,7 +100,7 @@ void main() {
       await pumpAppReady(tester);
 
       // Verify we are on profile selection.
-      expect(find.text("Who's watching?"), findsOneWidget);
+      expect(find.text("Who's Watching?"), findsOneWidget);
 
       // Tap the default profile.
       final defaultProfile = find.text('Default');
@@ -111,8 +111,8 @@ void main() {
       }
 
       // Should navigate away from profile selection.
-      // The "Who's watching?" header should be gone.
-      expect(find.text("Who's watching?"), findsNothing);
+      // The "Who's Watching?" header should be gone.
+      expect(find.text("Who's Watching?"), findsNothing);
 
       // The app shell should render with a Scaffold.
       expect(find.byType(Scaffold), findsWidgets);

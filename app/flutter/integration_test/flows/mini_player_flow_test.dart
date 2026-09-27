@@ -51,6 +51,7 @@ void main() {
       // presses Back from the fullscreen player on a non-preview route.
       await tester.runAsync(() async {
         final container = getContainer(tester);
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
       });
       await tester.pump(const Duration(milliseconds: 200));
@@ -124,6 +125,7 @@ void main() {
       // Enter background mode.
       await tester.runAsync(() async {
         final container = getContainer(tester);
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
       });
       await tester.pump(const Duration(milliseconds: 100));
@@ -168,6 +170,7 @@ void main() {
         // Enter background mode.
         await tester.runAsync(() async {
           final container = getContainer(tester);
+          container.read(playerModeProvider.notifier).enterFullscreen();
           container.read(playerModeProvider.notifier).exitToBackground();
         });
         await tester.pump(const Duration(milliseconds: 100));
@@ -212,6 +215,7 @@ void main() {
       // Enter background mode (simulates mini-player visible).
       await tester.runAsync(() async {
         final container = getContainer(tester);
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
       });
       await tester.pump(const Duration(milliseconds: 200));
@@ -259,6 +263,7 @@ void main() {
       // Enter background mode.
       await tester.runAsync(() async {
         final container = getContainer(tester);
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
       });
       await tester.pump(const Duration(milliseconds: 200));
@@ -357,6 +362,7 @@ void main() {
         final container = getContainer(tester);
 
         // Step 1: Enter background mode (user pressed Back from player).
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
         await tester.pump(const Duration(milliseconds: 100));
 

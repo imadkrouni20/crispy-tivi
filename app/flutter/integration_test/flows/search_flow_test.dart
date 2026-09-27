@@ -1,5 +1,6 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crispy_tivi/core/data/cache_service.dart';
 import 'package:crispy_tivi/core/data/memory_backend.dart';
 import 'package:crispy_tivi/core/testing/test_keys.dart';
+import 'package:crispy_tivi/features/search/presentation/widgets/enhanced_search_result_card.dart';
 
 import '../helpers/test_app.dart';
 import '../helpers/test_data.dart';
@@ -30,9 +32,41 @@ void _drainException(WidgetTester tester) {
   tester.takeException();
 }
 
+/// Supplies query-matched results to the search UI without a Rust backend.
+class _SearchBackend extends MemoryBackend {
+  @override
+  Future<String> enrichSearchResults(
+    String query,
+    String resultsJson,
+    String channelsJson,
+    String vodItemsJson,
+  ) async {
+    final needle = query.toLowerCase();
+    final channels =
+        (jsonDecode(channelsJson) as List).cast<Map<String, dynamic>>();
+    final vodItems =
+        (jsonDecode(vodItemsJson) as List).cast<Map<String, dynamic>>();
+    return jsonEncode([
+      for (final channel in channels)
+        if ((channel['name'] as String).toLowerCase().contains(needle))
+          {
+            'id': channel['id'],
+            'name': channel['name'],
+            'media_type': 'channel',
+          },
+      for (final item in vodItems)
+        if ((item['name'] as String).toLowerCase().contains(needle))
+          {
+            'id': item['id'],
+            'name': item['name'],
+            'media_type': item['type'] == 'series' ? 'series' : 'movie',
+          },
+    ]);
+  }
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  final isAndroid = defaultTargetPlatform == TargetPlatform.android;
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -69,7 +103,7 @@ void main() {
     testWidgets('Typing a query produces results from seeded data', (
       tester,
     ) async {
-      final testBackend = MemoryBackend();
+      final testBackend = _SearchBackend();
       final testCache = CacheService(testBackend);
       await seedTestSource(testCache);
       await testCache.saveChannels(TestData.sampleChannels);
@@ -97,15 +131,15 @@ void main() {
         reason: 'Search screen must contain a TextField for query input.',
       );
       await tester.enterText(textField.first, 'BBC');
-      // Allow debounce + search to complete.
-      for (var i = 0; i < 30; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
+      await _pumpUntilFound(tester, find.byType(EnhancedSearchResultCard));
       _drainException(tester);
 
       // At least one result mentioning 'BBC' must be visible from seeded data.
       expect(
-        find.textContaining('BBC'),
+        find.descendant(
+          of: find.byType(EnhancedSearchResultCard),
+          matching: find.textContaining('BBC'),
+        ),
         findsWidgets,
         reason: 'Typing "BBC" must produce results from seeded channel data.',
       );
@@ -200,7 +234,7 @@ void main() {
     testWidgets('Result cards show play button and source badge', (
       tester,
     ) async {
-      final testBackend = MemoryBackend();
+      final testBackend = _SearchBackend();
       final testCache = CacheService(testBackend);
       await seedTestSource(testCache);
       await testCache.saveChannels(TestData.sampleChannels);
@@ -224,41 +258,27 @@ void main() {
         reason: 'Search screen must contain a TextField.',
       );
       await tester.enterText(textField.first, 'Matrix');
-      for (var i = 0; i < 30; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
+      final matrixCard = find.ancestor(
+        of: find.text('The Matrix'),
+        matching: find.byType(EnhancedSearchResultCard),
+      );
+      await _pumpUntilFound(tester, matrixCard);
       _drainException(tester);
 
-      // Phase 14 item 6: result cards must contain a play button icon
-      // and a source badge text.
-      final hasPlayAffordance =
-          find.byIcon(Icons.play_arrow).evaluate().isNotEmpty ||
-          find.text('Play').evaluate().isNotEmpty;
-      if (isAndroid) {
-        expect(
-          find.textContaining('Matrix'),
-          findsWidgets,
-          reason:
-              'Android search results must render matching result text without crashing.',
-        );
-      } else {
-        expect(
-          hasPlayAffordance,
-          isTrue,
-          reason:
-              'Search result cards must show a visible play affordance '
-              '(icon or label) per FE-SR-05.',
-        );
-      }
-      if (!isAndroid) {
-        expect(
-          find.text('VOD'),
-          findsWidgets,
-          reason:
-              'Search result cards must show a source badge (VOD) '
-              'per FE-SR-10.',
-        );
-      }
+      expect(matrixCard, findsOneWidget);
+      expect(
+        find.descendant(
+          of: matrixCard,
+          matching: find.byIcon(Icons.play_arrow),
+        ),
+        findsOneWidget,
+        reason: 'The Matrix result card must show its play button.',
+      );
+      expect(
+        find.descendant(of: matrixCard, matching: find.text('VOD')),
+        findsOneWidget,
+        reason: 'The Matrix result card must show its VOD source badge.',
+      );
     });
 
     testWidgets('Clearing search returns to empty / recent-searches state', (

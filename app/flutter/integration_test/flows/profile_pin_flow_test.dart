@@ -283,8 +283,8 @@ void main() {
         reason: 'Wrong PIN must show "Incorrect PIN" error text.',
       );
 
-      // Dialog must still be open — no navigation occurred.
-      expect(find.text("Who's Watching?"), findsNothing);
+      // Profile selection remains behind the open dialog.
+      expect(find.text("Who's Watching?"), findsOneWidget);
       // Dialog title still visible.
       expect(find.textContaining('Secure'), findsWidgets);
     });

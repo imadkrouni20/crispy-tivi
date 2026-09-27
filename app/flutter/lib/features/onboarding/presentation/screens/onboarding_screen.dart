@@ -60,7 +60,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    _pageController = PageController(
+      initialPage: _stepToPageIndex(ref.read(onboardingProvider).step),
+    );
   }
 
   @override

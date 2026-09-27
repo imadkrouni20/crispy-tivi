@@ -65,6 +65,12 @@ class _PlayerFullscreenOverlayState
         PlayerFullscreenZapMixin,
         PlayerFullscreenKeyboardMixin {
   late final FocusNode _focusNode;
+  late final PipNotifier _pipNotifier;
+  late final ScreenBrightnessNotifier _brightnessNotifier;
+  late final AlwaysOnTopNotifier _alwaysOnTopNotifier;
+  late final PlaybackProgressNotifier _progressNotifier;
+  double? _brightnessOverride;
+  bool _alwaysOnTop = false;
   PlayerMode? _lastAppliedMode;
 
   /// Whether the video expand animation has completed.
@@ -84,6 +90,18 @@ class _PlayerFullscreenOverlayState
   @override
   void initState() {
     super.initState();
+    _pipNotifier = ref.read(pipProvider.notifier);
+    _brightnessNotifier = ref.read(screenBrightnessProvider.notifier);
+    _alwaysOnTopNotifier = ref.read(alwaysOnTopProvider.notifier);
+    _progressNotifier = ref.read(playbackProgressProvider.notifier);
+    _brightnessOverride = ref.read(screenBrightnessProvider);
+    _alwaysOnTop = ref.read(alwaysOnTopProvider);
+    ref.listenManual(screenBrightnessProvider, (_, next) {
+      _brightnessOverride = next;
+    });
+    ref.listenManual(alwaysOnTopProvider, (_, next) {
+      _alwaysOnTop = next;
+    });
     _focusNode = FocusNode();
     WidgetsBinding.instance.addObserver(this);
     initWindowListener();
@@ -191,7 +209,7 @@ class _PlayerFullscreenOverlayState
 
   @override
   void dispose() {
-    disarmAutoPip();
+    _pipNotifier.setAutoPipReady(ready: false);
     cancelFullscreenListener?.call();
     WidgetsBinding.instance.removeObserver(this);
     if (isWindowListenerRegistered) {
@@ -206,7 +224,7 @@ class _PlayerFullscreenOverlayState
         }
       });
     }
-    if (isInPip) ref.read(pipProvider.notifier).exitPip();
+    if (isInPip) _pipNotifier.exitPip();
 
     // Restore all orientations on player exit (REQ-05).
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
@@ -214,15 +232,15 @@ class _PlayerFullscreenOverlayState
     }
 
     // Reset screen brightness to system default on player exit (REQ-04).
-    if (ref.read(screenBrightnessProvider) != null) {
-      ref.read(screenBrightnessProvider.notifier).resetToSystem();
+    if (_brightnessOverride != null) {
+      _brightnessNotifier.resetToSystem();
       ScreenBrightnessHelper.resetBrightness();
     }
 
     // Reset always-on-top on player exit.
     if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
-      if (ref.read(alwaysOnTopProvider)) {
-        ref.read(alwaysOnTopProvider.notifier).set(false);
+      if (_alwaysOnTop) {
+        _alwaysOnTopNotifier.set(false);
         windowManager.setAlwaysOnTop(false);
       }
     }
@@ -234,7 +252,7 @@ class _PlayerFullscreenOverlayState
     );
     _focusNode.dispose();
     disposeGestures();
-    disposeHistory();
+    _progressNotifier.saveNow();
     super.dispose();
   }
 

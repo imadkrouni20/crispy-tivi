@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:crispy_tivi/core/data/cache_service.dart';
 import 'package:crispy_tivi/core/data/memory_backend.dart';
+import 'package:crispy_tivi/features/iptv/presentation/widgets/channel_list_item.dart';
 
 import '../helpers/test_app.dart';
 import '../helpers/test_data.dart';
@@ -119,8 +120,11 @@ void main() {
 
       // After drilling in, channel names from UK Entertainment group
       // should appear in the list.
+      final bbcOne = find.byWidgetPredicate(
+        (widget) => widget is ChannelListItem && widget.channel.id == 'xc_1001',
+      );
       expect(
-        find.text('BBC One'),
+        bbcOne,
         findsWidgets,
         reason:
             'BBC One channel must be visible after drilling into '
@@ -160,12 +164,15 @@ void main() {
       }
 
       // Tap BBC One channel.
+      final bbcOne = find.byWidgetPredicate(
+        (widget) => widget is ChannelListItem && widget.channel.id == 'xc_1001',
+      );
       expect(
-        find.text('BBC One'),
+        bbcOne,
         findsWidgets,
         reason: 'BBC One must be visible after drilling into group.',
       );
-      await tester.tap(find.text('BBC One').first);
+      await tester.tap(bbcOne.first);
       for (int i = 0; i < 20; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
