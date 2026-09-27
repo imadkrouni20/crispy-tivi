@@ -124,19 +124,26 @@ build_ios() {
 }
 
 build_ios_simulator() {
-  echo "==> Building crispy-ffi for iOS simulator (aarch64)..."
+  echo "==> Building crispy-ffi for iOS simulator (arm64 + x86_64)..."
   cd "$RUST_DIR"
 
   rustup target add aarch64-apple-ios-sim 2>/dev/null || true
+  rustup target add x86_64-apple-ios 2>/dev/null || true
   cargo build -p crispy-ffi $CARGO_FLAG \
     --target aarch64-apple-ios-sim
+  cargo build -p crispy-ffi $CARGO_FLAG \
+    --target x86_64-apple-ios
 
-  local lib_path="target/aarch64-apple-ios-sim/$CARGO_PROFILE/libcrispy_ffi.a"
-  echo "==> Built: $lib_path"
+  local arm64_lib="target/aarch64-apple-ios-sim/$CARGO_PROFILE/libcrispy_ffi.a"
+  local x86_64_lib="target/x86_64-apple-ios/$CARGO_PROFILE/libcrispy_ffi.a"
+  local universal_lib="target/ios-simulator/$CARGO_PROFILE/libcrispy_ffi.a"
+  mkdir -p "$(dirname "$universal_lib")"
+  lipo -create "$arm64_lib" "$x86_64_lib" -output "$universal_lib"
+  echo "==> Built universal simulator library: $universal_lib"
 
   local fw_dir="$FLUTTER_APP_DIR/ios/Frameworks"
   mkdir -p "$fw_dir"
-  cp "$lib_path" "$fw_dir/"
+  cp "$universal_lib" "$fw_dir/libcrispy_ffi.a"
   echo "==> Copied to app/flutter/ios/Frameworks/"
 }
 

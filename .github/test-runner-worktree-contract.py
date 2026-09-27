@@ -219,22 +219,70 @@ class RunnerWorktreeContractTests(unittest.TestCase):
             self.assertIn("Unpack prepared source", job, name)
             self.assertRegex(job, r"(?m)^    needs: .*(prepare-pr-worktree)", name)
 
-    def test_pull_requests_use_hosted_runners_and_only_main_dispatch_uses_shared(self):
-        _, jobs = job_blocks(WORKFLOWS / "ci.yml")
-        shared_jobs = ("prepare-pr-worktree", "rust-test", "flutter-analyze", "flutter-test", "build-android", "build-web", "playwright-web", "build-server", "build-linux")
-        for name in shared_jobs:
-            runs_on = next(line for line in jobs[name].splitlines() if line.startswith("    runs-on:"))
-            self.assertIn("github.event_name == 'workflow_dispatch'", runs_on, name)
-            self.assertIn("github.ref == 'refs/heads/main'", runs_on, name)
-            self.assertIn("'ubuntu-latest'", runs_on, name)
-            self.assertNotIn("github.event.pull_request", runs_on, name)
-            self.assertNotIn("pr-{0}-{1}", runs_on, name)
-        release = (WORKFLOWS / "release.yml").read_text()
-        for name in ("build-linux-android-web", "create-release"):
-            runner = re.search(rf"(?ms)^  {name}:\n(.*?)(?=^  [A-Za-z0-9_-]+:|\Z)", release)
-            self.assertIsNotNone(runner)
-            self.assertIn("github.ref == 'refs/heads/main'", runner.group(1))
-            self.assertIn("'ubuntu-latest'", runner.group(1))
+    def test_public_workflows_do_not_select_persistent_shared_runners(self):
+        ci, ci_jobs = job_blocks(WORKFLOWS / "ci.yml")
+        release, release_jobs = job_blocks(WORKFLOWS / "release.yml")
+        for workflow_name, workflow, jobs in (
+            ("CI", ci, ci_jobs),
+            ("Release", release, release_jobs),
+        ):
+            self.assertIn("GitHub-hosted runners only", workflow, workflow_name)
+            self.assertIn("external runner isolation", workflow, workflow_name)
+            self.assertIsNone(
+                re.search(r"(?mi)^\s*runs-on:.*self-hosted", workflow),
+                workflow_name,
+            )
+            for name, job in jobs.items():
+                runs_on = next(
+                    line for line in job.splitlines() if line.startswith("    runs-on:")
+                )
+                self.assertNotIn("self-hosted", runs_on, name)
+    def test_manual_release_packages_use_flutter_build_outputs(self):
+        release, jobs = job_blocks(WORKFLOWS / "release.yml")
+        windows = jobs["build-windows"]
+        self.assertRegex(
+            windows,
+            r"(?ms)^      - name: Create MSIX package\n"
+            r"        run: dart run msix:create[^\n]*\n"
+            r"        working-directory: app/flutter$",
+        )
+        self.assertRegex(
+            windows,
+            r"(?ms)^      - name: Build Windows installer\n"
+            r"        run: iscc [^\n]*\.\./\.\./scripts/inno_setup\.iss\n"
+            r"        working-directory: app/flutter$",
+        )
+        self.assertIn("app/flutter/Output/CrispyTivi-*-windows-setup.exe", windows)
+        installer = ROOT / "scripts/inno_setup.iss"
+        installer_text = installer.read_text()
+        setup = installer_text.split("[Setup]", 1)[1].split("[", 1)[0]
+        setup_options = dict(
+            line.split("=", 1)
+            for line in setup.splitlines()
+            if "=" in line and not line.lstrip().startswith(";")
+        )
+        source_dir = (installer.parent / setup_options["SourceDir"].replace("\\", "/")).resolve()
+        output_dir = (source_dir / setup_options["OutputDir"].replace("\\", "/")).resolve()
+        files_section = installer_text.split("[Files]", 1)[1].split("[", 1)[0]
+        file_source = re.search(r'Source:\s*"([^"]+)"', files_section).group(1)
+        self.assertEqual(source_dir, ROOT / "app/flutter")
+        self.assertEqual(output_dir, ROOT / "app/flutter/Output")
+        icon_path = setup_options["SetupIconFile"].replace("\\", "/")
+        self.assertTrue((source_dir / icon_path).is_file())
+        self.assertEqual(
+            (source_dir / file_source.replace("\\", "/")).resolve(),
+            ROOT / "app/flutter/build/windows/x64/runner/Release/*",
+        )
+
+        apple = jobs["build-macos-ios"]
+        self.assertIn(
+            '"app/flutter/build/macos/Build/Products/Release/crispy_tivi.app"',
+            apple,
+        )
+        self.assertIn(
+            "cd app/flutter/build/ios/archive/Runner.xcarchive/Products/Applications",
+            apple,
+        )
 
     def test_prepare_runs_once_then_publishes_source_for_hosted_jobs(self):
         _, jobs = job_blocks(WORKFLOWS / "ci.yml")
@@ -337,6 +385,10 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("wait-on http://127.0.0.1:8081/health", playwright)
         self.assertIn("CRISPY_DB_PATH=$RUNNER_TEMP/crispy-playwright-data/crispy_tivi_v2.sqlite", playwright)
         self.assertIn("seed_playwright_db.py", playwright)
+        self.assertLess(
+            playwright.index("Seed Playwright database fixture"),
+            playwright.index("Start backend server"),
+        )
         self.assertIn("crispy-server", playwright)
         self.assertIn("npx playwright install --with-deps chromium", playwright)
 
@@ -349,14 +401,40 @@ class RunnerWorktreeContractTests(unittest.TestCase):
         self.assertIn("flutter build ios --simulator --no-codesign", jobs["build-ios"])
         self.assertIn("bash scripts/build_rust.sh ios-simulator", jobs["build-ios"])
         self.assertIn("aarch64-apple-ios-sim", jobs["build-ios"])
+        self.assertIn("x86_64-apple-ios", jobs["build-ios"])
         ios_podfile = (ROOT / "app/flutter/ios/Podfile").read_text()
         macos_podfile = (ROOT / "app/flutter/macos/Podfile").read_text()
         self.assertIn('bash "$SRCROOT/../../../scripts/build_rust.sh" "$rust_platform"', ios_podfile)
         self.assertIn("PLATFORM_NAME", ios_podfile)
         self.assertIn('bash "$SRCROOT/../../../scripts/build_rust.sh" macos', macos_podfile)
+        windows_cxxflags = r"CXXFLAGS: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS"
+        self.assertIn(f"      {windows_cxxflags}", jobs["build-windows"])
+        self.assertIn("Set-Location app/flutter", jobs["build-windows"])
+        self.assertNotIn("cd app/flutter && flutter test", jobs["build-windows"])
+        self.assertNotIn("        env:\n          CXXFLAGS:", jobs["build-windows"])
+        release_jobs = job_blocks(WORKFLOWS / "release.yml")[1]
+        self.assertIn(f"      {windows_cxxflags}", release_jobs["build-windows"])
+        self.assertIn("app/flutter/build/macos/Build/Products/Release/crispy_tivi.app", jobs["build-macos"])
+        self.assertIn("app/flutter/build/macos-release.zip", jobs["build-macos"])
         self.assertIn(
-            "CXXFLAGS: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS",
-            jobs["build-windows"],
+            "app/flutter/build/macos/Build/Products/Release/**/*.dSYM",
+            jobs["build-macos"],
+        )
+        self.assertNotRegex(
+            jobs["build-macos"],
+            r"(?m)^\s+build/macos/Build/Products/Release/crispy_tivi\.app$",
+        )
+        ios_build_test = subprocess.run(
+            [sys.executable, ".github/test_ios_simulator_build.py"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            ios_build_test.returncode,
+            0,
+            ios_build_test.stdout + ios_build_test.stderr,
         )
         seed_test = subprocess.run(
             [sys.executable, "scripts/ci/test_seed_playwright_db.py"],

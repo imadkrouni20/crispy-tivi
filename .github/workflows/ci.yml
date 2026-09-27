@@ -3,6 +3,10 @@
 #   - build-windows, build-android, build-web, playwright-web, golden-tests, build-server (Tier 1)
 #
 # Tier 2 (advisory, non-blocking): build-macos, build-ios, build-linux
+# This public repository uses GitHub-hosted runners only. A pull request controls
+# its workflow YAML, so no expression in that YAML can safely authorize a
+# persistent self-hosted runner. Reconsider only after external runner isolation
+# prevents fork workflows from selecting the shared pool.
 
 name: CI
 
@@ -36,7 +40,7 @@ jobs:
   # Prepare the source once before independent platform jobs fan out.
   prepare-pr-worktree:
     name: Prepare CI Source
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -138,7 +142,7 @@ jobs:
   # ── Rust Tests ──────────────────────────────────
   rust-test:
     name: Rust Tests
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [prepare-pr-worktree]
     steps:
       - uses: actions/download-artifact@v4
@@ -202,7 +206,7 @@ jobs:
   # ── Flutter Analyze ─────────────────────────────
   flutter-analyze:
     name: Flutter Analyze
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [prepare-pr-worktree]
     steps:
       - uses: actions/download-artifact@v4
@@ -226,7 +230,7 @@ jobs:
   # ── Flutter Tests ───────────────────────────────
   flutter-test:
     name: Flutter Tests
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [prepare-pr-worktree, flutter-analyze]
     steps:
       - uses: actions/download-artifact@v4
@@ -308,6 +312,8 @@ jobs:
     name: Build Windows
     runs-on: windows-latest
     needs: [prepare-pr-worktree, rust-test, flutter-analyze]
+    env:
+      CXXFLAGS: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -330,26 +336,25 @@ jobs:
           cache: true
       - run: cd app/flutter && flutter pub get
       - run: cd app/flutter && flutter build windows --release
-        env:
-          CXXFLAGS: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
       - name: Run integration tests
         run: |
-          cd app/flutter && flutter test integration_test/flows/channel_browse_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/content_switching_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/dvr_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/epg_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/favorites_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/iptv_setup_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/mini_player_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/onboarding_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/player_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/player_speed_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/profile_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/profile_pin_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/search_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/settings_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/vod_flow_test.dart -d windows
-          cd app/flutter && flutter test integration_test/flows/vod_resume_flow_test.dart -d windows
+          Set-Location app/flutter
+          flutter test integration_test/flows/channel_browse_test.dart -d windows
+          flutter test integration_test/flows/content_switching_flow_test.dart -d windows
+          flutter test integration_test/flows/dvr_flow_test.dart -d windows
+          flutter test integration_test/flows/epg_flow_test.dart -d windows
+          flutter test integration_test/flows/favorites_flow_test.dart -d windows
+          flutter test integration_test/flows/iptv_setup_flow_test.dart -d windows
+          flutter test integration_test/flows/mini_player_flow_test.dart -d windows
+          flutter test integration_test/flows/onboarding_flow_test.dart -d windows
+          flutter test integration_test/flows/player_flow_test.dart -d windows
+          flutter test integration_test/flows/player_speed_flow_test.dart -d windows
+          flutter test integration_test/flows/profile_flow_test.dart -d windows
+          flutter test integration_test/flows/profile_pin_flow_test.dart -d windows
+          flutter test integration_test/flows/search_flow_test.dart -d windows
+          flutter test integration_test/flows/settings_flow_test.dart -d windows
+          flutter test integration_test/flows/vod_flow_test.dart -d windows
+          flutter test integration_test/flows/vod_resume_flow_test.dart -d windows
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release
@@ -359,7 +364,7 @@ jobs:
   # ── Build Android ───────────────────────────────
   build-android:
     name: Build Android
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [prepare-pr-worktree, rust-test, flutter-analyze]
     steps:
       - uses: actions/download-artifact@v4
@@ -409,7 +414,7 @@ jobs:
   # ── Build Web ───────────────────────────────────
   build-web:
     name: Build Web
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [prepare-pr-worktree, flutter-analyze]
     steps:
       - uses: actions/download-artifact@v4
@@ -434,7 +439,7 @@ jobs:
   # ── Playwright Web Tests ────────────────────────
   playwright-web:
     name: Playwright Web Tests
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [prepare-pr-worktree, build-web, build-server]
     steps:
       - uses: actions/download-artifact@v4
@@ -459,6 +464,8 @@ jobs:
         run: npx -y http-server app/flutter/build/web -p "$CRISPY_WEB_PORT" -a 127.0.0.1 -c-1 --cors &
       - name: Wait for server
         run: npx -y wait-on "http://127.0.0.1:$CRISPY_WEB_PORT" --timeout 60000
+      - name: Seed Playwright database fixture
+        run: python3 scripts/ci/seed_playwright_db.py "$CRISPY_DB_PATH"
       - name: Start backend server
         run: |
           chmod +x "$RUNNER_TEMP/server/crispy-server"
@@ -466,8 +473,6 @@ jobs:
           CRISPY_PORT=8081 CRISPY_DB_PATH="$CRISPY_DB_PATH" nohup "$RUNNER_TEMP/server/crispy-server" > "$RUNNER_TEMP/crispy-server.log" 2>&1 &
       - name: Wait for backend server
         run: npx -y wait-on http://127.0.0.1:8081/health --timeout 60000
-      - name: Seed Playwright database fixture
-        run: python3 scripts/ci/seed_playwright_db.py "$CRISPY_DB_PATH"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -485,7 +490,7 @@ jobs:
   # ── Build Server ────────────────────────────────
   build-server:
     name: Build Server
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [prepare-pr-worktree, rust-test]
     steps:
       - uses: actions/download-artifact@v4
@@ -519,7 +524,7 @@ jobs:
   # ── Build Linux ─────────────────────────────────
   build-linux:
     name: Build Linux
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && fromJSON('["self-hosted","linux","x64","generic"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [prepare-pr-worktree, rust-test, flutter-analyze]
     continue-on-error: true
     steps:
@@ -592,18 +597,18 @@ jobs:
       - name: Package macOS app
         run: |
           ditto -c -k --keepParent \
-            build/macos/Build/Products/Release/crispy_tivi.app \
-            build/macos-release.zip
+            app/flutter/build/macos/Build/Products/Release/crispy_tivi.app \
+            app/flutter/build/macos-release.zip
       - uses: actions/upload-artifact@v4
         with:
           name: macos-release
-          path: build/macos-release.zip
+          path: app/flutter/build/macos-release.zip
           compression-level: 0
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: macos-dsyms
-          path: build/macos/Build/Products/Release/**/*.dSYM
+          path: app/flutter/build/macos/Build/Products/Release/**/*.dSYM
           retention-days: 7
 
   # ── Build iOS ───────────────────────────────────
@@ -622,7 +627,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
-          targets: aarch64-apple-ios-sim
+          targets: >-
+            aarch64-apple-ios-sim,
+            x86_64-apple-ios
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust

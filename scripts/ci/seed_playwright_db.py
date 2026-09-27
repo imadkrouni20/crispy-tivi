@@ -5,17 +5,37 @@ import sqlite3
 import sys
 from pathlib import Path
 
+MIGRATIONS = (
+    (36, "001_initial_schema.sql"),
+    (37, "002_add_xtream_stream_id.sql"),
+    (39, "003_add_epg_channels_display_index.sql"),
+    (40, "004_add_vod_type.sql"),
+)
+
+
+def initialize_schema(database: sqlite3.Connection) -> None:
+    current_version = database.execute("PRAGMA user_version").fetchone()[0]
+    migration_dir = (
+        Path(__file__).resolve().parents[2]
+        / "rust/crates/crispy-core/src/database/migrations"
+    )
+    for target_version, migration in MIGRATIONS:
+        if target_version <= current_version:
+            continue
+        database.executescript((migration_dir / migration).read_text())
+        current_version = database.execute("PRAGMA user_version").fetchone()[0]
+
 
 def main() -> int:
     if len(sys.argv) != 2:
         raise SystemExit("usage: seed_playwright_db.py DATABASE_PATH")
 
     database_path = Path(sys.argv[1])
-    if not database_path.is_file():
-        raise SystemExit(f"database does not exist: {database_path}")
+    database_path.parent.mkdir(parents=True, exist_ok=True)
 
     with sqlite3.connect(database_path) as database:
         database.execute("PRAGMA foreign_keys = ON")
+        initialize_schema(database)
         required_tables = {"db_sources", "db_movies"}
         existing_tables = {
             row[0]
