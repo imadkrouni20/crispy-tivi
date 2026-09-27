@@ -196,7 +196,17 @@ test.describe("Real Source Smoke", () => {
         .first()
         .click({ timeout: 5000 });
     } catch {
-      await page.mouse.click(460, 420);
+      const viewport = page.viewportSize();
+      if (viewport == null) throw new Error("Series card requires a viewport");
+      const point: [number, number] =
+        viewport.width < 840
+          ? [180, 400]
+          : viewport.width < 1200
+            ? [220, 100]
+            : viewport.width < 1920
+              ? [245, 250]
+              : [245, 380];
+      await page.mouse.click(point[0], point[1]);
     }
     const detailResponse = await seriesInfoResponse;
     log(`Series detail response: ${detailResponse.status()} ${detailResponse.url()}`);
