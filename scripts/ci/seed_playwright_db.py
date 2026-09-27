@@ -55,8 +55,9 @@ def main() -> int:
 
         database.execute(
             """INSERT OR REPLACE INTO db_sources
-               (id, name, source_type, url, username, password, enabled)
-               VALUES (?, ?, ?, ?, ?, ?, 1)""",
+               (id, name, source_type, url, username, password, enabled,
+                last_sync_time, last_sync_status)
+               VALUES (?, ?, ?, ?, ?, ?, 1, strftime('%s','now'), 'success')""",
             (
                 "playwright-fixture-source",
                 "Playwright fixture source",

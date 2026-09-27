@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -29,6 +30,12 @@ def main() -> int:
                 ("CrispyTivi Playwright Series", "series"),
             ], rows
             assert database.execute("PRAGMA foreign_key_check").fetchall() == []
+            last_sync_time, last_sync_status = database.execute(
+                "SELECT last_sync_time, last_sync_status FROM db_sources "
+                "WHERE id = 'playwright-fixture-source'"
+            ).fetchone()
+            assert abs(int(time.time()) - last_sync_time) < 60, last_sync_time
+            assert last_sync_status == "success", last_sync_status
 
         subprocess.run(
             [sys.executable, str(seed_script), str(database_path)],
