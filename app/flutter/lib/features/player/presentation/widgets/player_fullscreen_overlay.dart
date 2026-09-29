@@ -12,7 +12,6 @@ import '../../../../config/settings_state.dart';
 import '../../../../core/testing/test_keys.dart';
 import '../../../../core/theme/crispy_animation.dart';
 import '../../../../core/utils/platform_capabilities.dart';
-import '../../../../core/utils/screen_brightness_helper.dart';
 import '../../../favorites/presentation/providers/favorites_history_provider.dart';
 import '../providers/pip_provider.dart';
 import '../../domain/entities/playback_state.dart';
@@ -20,6 +19,7 @@ import '../providers/playback_progress_provider.dart';
 import '../providers/player_providers.dart';
 import '../screens/player_external_launch.dart';
 import 'channel_zap_overlay.dart';
+import 'player_fullscreen_exit.dart';
 import 'player_fullscreen_keyboard.dart';
 import 'player_fullscreen_zap.dart';
 import 'player_gesture_handler.dart';
@@ -62,15 +62,10 @@ class _PlayerFullscreenOverlayState
         PlayerLifecycleMixin,
         PlayerGestureMixin,
         PlayerHistoryMixin,
+        PlayerFullscreenExitMixin,
         PlayerFullscreenZapMixin,
         PlayerFullscreenKeyboardMixin {
   late final FocusNode _focusNode;
-  late final PipNotifier _pipNotifier;
-  late final ScreenBrightnessNotifier _brightnessNotifier;
-  late final AlwaysOnTopNotifier _alwaysOnTopNotifier;
-  late final PlaybackProgressNotifier _progressNotifier;
-  double? _brightnessOverride;
-  bool _alwaysOnTop = false;
   PlayerMode? _lastAppliedMode;
 
   /// Whether the video expand animation has completed.
@@ -90,18 +85,7 @@ class _PlayerFullscreenOverlayState
   @override
   void initState() {
     super.initState();
-    _pipNotifier = ref.read(pipProvider.notifier);
-    _brightnessNotifier = ref.read(screenBrightnessProvider.notifier);
-    _alwaysOnTopNotifier = ref.read(alwaysOnTopProvider.notifier);
-    _progressNotifier = ref.read(playbackProgressProvider.notifier);
-    _brightnessOverride = ref.read(screenBrightnessProvider);
-    _alwaysOnTop = ref.read(alwaysOnTopProvider);
-    ref.listenManual(screenBrightnessProvider, (_, next) {
-      _brightnessOverride = next;
-    });
-    ref.listenManual(alwaysOnTopProvider, (_, next) {
-      _alwaysOnTop = next;
-    });
+    initExitState();
     _focusNode = FocusNode();
     WidgetsBinding.instance.addObserver(this);
     initWindowListener();
@@ -209,7 +193,7 @@ class _PlayerFullscreenOverlayState
 
   @override
   void dispose() {
-    _pipNotifier.setAutoPipReady(ready: false);
+    pipNotifier.setAutoPipReady(ready: false);
     cancelFullscreenListener?.call();
     WidgetsBinding.instance.removeObserver(this);
     if (isWindowListenerRegistered) {
@@ -224,26 +208,14 @@ class _PlayerFullscreenOverlayState
         }
       });
     }
-    if (isInPip) _pipNotifier.exitPip();
+    if (isInPip) pipNotifier.exitPip();
 
     // Restore all orientations on player exit (REQ-05).
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       SystemChrome.setPreferredOrientations([]);
     }
 
-    // Reset screen brightness to system default on player exit (REQ-04).
-    if (_brightnessOverride != null) {
-      _brightnessNotifier.resetToSystem();
-      ScreenBrightnessHelper.resetBrightness();
-    }
-
-    // Reset always-on-top on player exit.
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
-      if (_alwaysOnTop) {
-        _alwaysOnTopNotifier.set(false);
-        windowManager.setAlwaysOnTop(false);
-      }
-    }
+    resetExitState();
 
     zapOverlayTimer?.cancel();
     _singleClickTimer?.cancel();
@@ -252,7 +224,7 @@ class _PlayerFullscreenOverlayState
     );
     _focusNode.dispose();
     disposeGestures();
-    _progressNotifier.saveNow();
+    saveProgressOnExit();
     super.dispose();
   }
 
