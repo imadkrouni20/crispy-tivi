@@ -5,6 +5,7 @@ import 'package:crispy_tivi/core/data/cache_service.dart';
 import 'package:crispy_tivi/core/data/memory_backend.dart';
 import 'package:crispy_tivi/core/domain/entities/playlist_source.dart';
 import 'package:crispy_tivi/core/navigation/app_router.dart';
+import 'package:crispy_tivi/features/onboarding/presentation/providers/onboarding_notifier.dart';
 import 'package:crispy_tivi/features/profiles/data/profile_service.dart';
 import 'package:crispy_tivi/features/profiles/domain/entities/user_profile.dart';
 import 'package:crispy_tivi/features/profiles/domain/enums/dvr_permission.dart';
@@ -92,6 +93,15 @@ class _FakeProfileService extends ProfileService {
   }
 }
 
+/// An onboarding notifier that starts on the sync step.
+class _SyncingOnboarding extends OnboardingNotifier {
+  @override
+  OnboardingState build() => const OnboardingState(
+    step: OnboardingStep.syncing,
+    syncStatus: SyncStatus.syncing,
+  );
+}
+
 // ── Test helpers ───────────────────────────────────────────────────────────
 
 /// A profile with admin role that has no PIN.
@@ -118,6 +128,7 @@ Future<GoRouter> _pumpApp(
   WidgetTester tester, {
   List<PlaylistSource> sources = const [],
   UserProfile? activeProfile = _defaultProfile,
+  bool onboardingSyncing = false,
 }) async {
   final backend = MemoryBackend();
   final fakeSettings = _FakeSettingsNotifier(sources: sources);
@@ -132,6 +143,8 @@ Future<GoRouter> _pumpApp(
         cacheServiceProvider.overrideWithValue(CacheService(backend)),
         settingsNotifierProvider.overrideWith(() => fakeSettings),
         profileServiceProvider.overrideWith(() => fakeProfiles),
+        if (onboardingSyncing)
+          onboardingProvider.overrideWith(_SyncingOnboarding.new),
       ],
       child: Consumer(
         builder: (context, ref, _) {
@@ -198,6 +211,29 @@ void main() {
     final path = router.routeInformationProvider.value.uri.path;
     expect(path, isNot(AppRoutes.onboarding));
     expect(path, AppRoutes.home);
+  });
+
+  // Onboarding must stay on the sync step until the source sync completes,
+  // even though addSource has already made hasSources true.
+
+  testWidgets('sources exist but onboarding is syncing: stays on /onboarding', (
+    tester,
+  ) async {
+    final router = await _pumpApp(
+      tester,
+      sources: [_m3uSource],
+      activeProfile: _defaultProfile,
+      onboardingSyncing: true,
+    );
+
+    router.go(AppRoutes.onboarding);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(
+      router.routeInformationProvider.value.uri.path,
+      AppRoutes.onboarding,
+    );
   });
 
   // ── REQ-03 Scenario 3: No sources + no active profile + /profiles → no redirect

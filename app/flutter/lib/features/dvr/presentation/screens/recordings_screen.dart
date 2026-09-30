@@ -288,18 +288,22 @@ class _MiniAction extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Label card
+        // Label card (tappable, like its mini FAB)
         Card(
           margin: EdgeInsets.zero,
           color: cs.surfaceContainerHigh,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: CrispySpacing.sm,
-              vertical: CrispySpacing.xs,
-            ),
-            child: Text(
-              label,
-              style: tt.labelMedium?.copyWith(color: cs.onSurface),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onPressed,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: CrispySpacing.sm,
+                vertical: CrispySpacing.xs,
+              ),
+              child: Text(
+                label,
+                style: tt.labelMedium?.copyWith(color: cs.onSurface),
+              ),
             ),
           ),
         ),

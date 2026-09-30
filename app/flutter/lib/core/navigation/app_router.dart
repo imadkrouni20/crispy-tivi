@@ -28,6 +28,7 @@ import '../../features/vod/domain/entities/vod_item.dart';
 import '../../features/vod/presentation/screens/series_detail_screen.dart';
 import '../../features/vod/presentation/screens/vod_browser_screen.dart';
 import '../../features/vod/presentation/screens/vod_details_screen.dart';
+import '../../features/onboarding/presentation/providers/onboarding_notifier.dart';
 import '../../features/onboarding/presentation/screens/onboarding_screen.dart';
 import '../../features/player/presentation/providers/player_providers.dart';
 import 'app_shell.dart';
@@ -132,7 +133,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       if (!hasSources && !isOnboarding && !isProfiles) {
         return AppRoutes.onboarding;
       }
-      if (hasSources && isOnboarding) {
+      // addSource makes hasSources true before the first sync finishes;
+      // stay on the wizard's sync step until the user enters the app.
+      final onboardingSyncing =
+          ref.read(onboardingProvider).step == OnboardingStep.syncing;
+      if (hasSources && isOnboarding && !onboardingSyncing) {
         final defaultScreen = settings.defaultScreen;
         return defaultScreen == 'live_tv' ? AppRoutes.tv : AppRoutes.home;
       }

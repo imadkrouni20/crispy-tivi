@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:crispy_tivi/core/data/cache_service.dart';
 import 'package:crispy_tivi/core/data/memory_backend.dart';
+import 'package:crispy_tivi/features/epg/presentation/widgets/virtual_epg_grid.dart';
 
 import '../helpers/test_app.dart';
 import '../helpers/test_data.dart';
@@ -112,7 +113,7 @@ void main() {
       await navigateToTab(tester, 'Guide');
       _drainException(tester);
 
-      // All seeded channels must be visible in the EPG sidebar.
+      // The grid is virtualized: leading channels render immediately.
       expect(
         find.text('BBC One'),
         findsWidgets,
@@ -123,10 +124,18 @@ void main() {
         findsWidgets,
         reason: 'Seeded channel "CNN" must be visible in EPG sidebar.',
       );
+
+      // Later channels sit below the first screenful and must appear
+      // once the grid is scrolled to them.
+      await tester.dragUntilVisible(
+        find.text('ESPN'),
+        find.byType(VirtualEpgGrid),
+        const Offset(0, -200),
+      );
       expect(
         find.text('ESPN'),
         findsWidgets,
-        reason: 'Seeded channel "ESPN" must be visible in EPG sidebar.',
+        reason: 'Seeded channel "ESPN" must be reachable in the EPG grid.',
       );
     });
 

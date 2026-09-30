@@ -100,6 +100,19 @@ class _MockPlayerService extends Mock implements PlayerService {
   Stream<PlaybackState> get stateStream => Stream<PlaybackState>.empty();
 
   @override
+  Future<void> play(
+    String url, {
+    bool isLive = false,
+    String? channelName,
+    String? channelLogoUrl,
+    String? currentProgram,
+    Map<String, String>? headers,
+  }) async {}
+
+  @override
+  Future<void> setSpeed(double speed) async {}
+
+  @override
   Future<void> stop() async {}
 }
 
