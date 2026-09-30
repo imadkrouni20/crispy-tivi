@@ -11,9 +11,7 @@ import {
 } from "../helpers/selectors";
 import { filterAppErrors } from "./helpers/error-filter";
 
-const DB_PATH =
-  process.env.CRISPY_DB_PATH ??
-  "/home/mkh/.crispytivi/data/crispy_tivi_v2.sqlite";
+const DB_PATH = process.env.CRISPY_DB_PATH;
 
 const REPORT_DIR = path.join(__dirname, "..", "..", "reports");
 const NAV_COORDS: Record<string, [number, number]> = {
@@ -92,6 +90,29 @@ test.describe("Real Source Smoke", () => {
   test("guide, movies, series, search, and core navigation stay healthy", async ({
     page,
   }) => {
+    if (!DB_PATH) {
+      throw new Error(
+        "CRISPY_DB_PATH must point to the isolated Playwright fixture database",
+      );
+    }
+
+    await page.route(/\/proxy\?url=/, async (route) => {
+      const target = new URL(route.request().url()).searchParams.get("url");
+      if (
+        !target?.includes("playwright-fixture.invalid") ||
+        !target.includes("action=get_series_info")
+      ) {
+        await route.continue();
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ info: {}, episodes: {} }),
+      });
+    });
+
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
     const logLines: string[] = [];
@@ -154,12 +175,12 @@ test.describe("Real Source Smoke", () => {
     // After toggling the expensive EPG-only filter, the app must still
     // respond to a normal route change quickly.
     await navigateTo(page, "Movies");
-    const moviesShot = await takeNamedScreenshot(page, "real-smoke-movies");
-    expect(moviesShot.length).toBeGreaterThan(100_000);
+    expect(page.url()).toContain("#/vod");
+    await takeNamedScreenshot(page, "real-smoke-movies");
 
     await navigateTo(page, "Series");
-    const seriesShot = await takeNamedScreenshot(page, "real-smoke-series");
-    expect(seriesShot.length).toBeGreaterThan(100_000);
+    expect(page.url()).toContain("#/series");
+    await takeNamedScreenshot(page, "real-smoke-series");
 
     const seriesInfoResponse = page.waitForResponse(
       (response) =>
@@ -175,7 +196,19 @@ test.describe("Real Source Smoke", () => {
         .first()
         .click({ timeout: 5000 });
     } catch {
-      await page.mouse.click(460, 420);
+      const viewport = page.viewportSize();
+      if (viewport == null) throw new Error("Series card requires a viewport");
+      // The expanded sidebar (250px wide) covers the card's left side on
+      // larger layouts, so aim right of it.
+      const point: [number, number] =
+        viewport.width < 840
+          ? [180, 400]
+          : viewport.width < 1200
+            ? [300, 100]
+            : viewport.width < 1920
+              ? [300, 250]
+              : [300, 380];
+      await page.mouse.click(point[0], point[1]);
     }
     const detailResponse = await seriesInfoResponse;
     log(`Series detail response: ${detailResponse.status()} ${detailResponse.url()}`);

@@ -58,11 +58,10 @@ class AppTheme {
 
   /// V2 page transition theme — Zoom on Android/Windows/Linux,
   /// Cupertino on iOS/macOS.
-  static const _pageTransitions = PageTransitionsTheme(
+  static final _pageTransitions = PageTransitionsTheme(
     builders: {
+      ...PageTransitionsTheme().builders,
       TargetPlatform.android: ZoomPageTransitionsBuilder(),
-      TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-      TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
       TargetPlatform.windows: ZoomPageTransitionsBuilder(),
       TargetPlatform.linux: ZoomPageTransitionsBuilder(),
     },

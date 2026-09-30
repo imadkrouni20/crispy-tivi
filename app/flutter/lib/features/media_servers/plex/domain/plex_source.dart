@@ -271,7 +271,7 @@ class PlexSource implements MediaSource {
   @override
   Future<String> getStreamUrl(String itemId) async {
     try {
-      return apiClient.getPlaybackUrl(_server, itemId);
+      return await apiClient.getPlaybackUrl(_server, itemId);
     } on AuthFailure catch (e) {
       throw MediaSourceException.auth(message: e.message, cause: e);
     } on ServerFailure catch (e) {

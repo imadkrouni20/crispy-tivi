@@ -36,7 +36,11 @@ mixin PlaylistSyncHelpers {
       final isAdmin = accessible == null;
 
       final cache = ref.read(cacheServiceProvider);
-      return cache.filterChannelsBySourceTyped(channels, accessible, isAdmin);
+      return await cache.filterChannelsBySourceTyped(
+        channels,
+        accessible,
+        isAdmin,
+      );
     } catch (e) {
       debugPrint(
         'PlaylistSync: source access filter '

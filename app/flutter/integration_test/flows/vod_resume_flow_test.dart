@@ -92,7 +92,7 @@ void main() {
       );
 
       // Tap the Play button on details screen.
-      final playButton = find.widgetWithText(ElevatedButton, 'Play');
+      final playButton = find.widgetWithText(FilledButton, 'Play');
       expect(
         playButton,
         findsWidgets,
@@ -158,7 +158,7 @@ void main() {
         reason: 'VOD details screen must appear after tapping a VOD card.',
       );
 
-      final playButton = find.widgetWithText(ElevatedButton, 'Play');
+      final playButton = find.widgetWithText(FilledButton, 'Play');
       expect(
         playButton,
         findsWidgets,
@@ -240,7 +240,7 @@ void main() {
         reason: 'VOD details screen must appear after tapping a VOD card.',
       );
 
-      final playButton = find.widgetWithText(ElevatedButton, 'Play');
+      final playButton = find.widgetWithText(FilledButton, 'Play');
       expect(
         playButton,
         findsWidgets,
@@ -286,7 +286,8 @@ void main() {
       await seedTestSource(testCache);
       await testCache.saveVodItems(TestData.sampleVodItems);
 
-      // Inception has NO watch history — should play directly.
+      // Mad Max has NO watch history and remains visible in the default
+      // Action category, so it should play directly.
       await tester.pumpWidget(
         createTestApp(backend: testBackend, cache: testCache),
       );
@@ -295,13 +296,13 @@ void main() {
 
       await navigateToTab(tester, 'VODs');
 
-      final inceptionFinder = find.text('Inception');
+      final unwatchedFinder = find.text('Mad Max: Fury Road');
       expect(
-        inceptionFinder,
+        unwatchedFinder,
         findsWidgets,
-        reason: 'Seeded VOD "Inception" must be visible on VODs tab.',
+        reason: 'Seeded VOD "Mad Max: Fury Road" must be visible on VODs tab.',
       );
-      await tester.tap(inceptionFinder.first);
+      await tester.tap(unwatchedFinder.first);
       for (int i = 0; i < 30; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
@@ -312,7 +313,7 @@ void main() {
         reason: 'VOD details screen must appear after tapping a VOD card.',
       );
 
-      final playButton = find.widgetWithText(ElevatedButton, 'Play');
+      final playButton = find.widgetWithText(FilledButton, 'Play');
       expect(
         playButton,
         findsWidgets,
@@ -378,7 +379,7 @@ void main() {
         reason: 'VOD details screen must appear after tapping a VOD card.',
       );
 
-      final playButton = find.widgetWithText(ElevatedButton, 'Play');
+      final playButton = find.widgetWithText(FilledButton, 'Play');
       expect(
         playButton,
         findsWidgets,

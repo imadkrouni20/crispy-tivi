@@ -1,5 +1,9 @@
-# Manual release workflow — builds all platform artifacts and publishes GitHub Release.
+# Manual release workflow - builds all platform artifacts and publishes GitHub Release.
 # Trigger: workflow_dispatch only. No automatic releases on push.
+# This public repository uses GitHub-hosted runners only. A pull request controls
+# workflow YAML, so expressions inside a workflow cannot safely authorize a
+# persistent shared runner. Reconsider after external runner isolation protects
+# the pool from fork workflows.
 
 name: Release
 
@@ -17,6 +21,7 @@ permissions:
 env:
   FLUTTER_VERSION: "3.41.1"
   RUST_VERSION: "1.91.1"
+  RELEASE_VERSION: ${{ inputs.version }}
 
 jobs:
   # =================================================================
@@ -25,8 +30,12 @@ jobs:
   build-windows:
     name: Build Windows
     runs-on: windows-latest
+    env:
+      CXXFLAGS: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -52,27 +61,29 @@ jobs:
         run: cd app/flutter && flutter build windows --release
 
       - name: Create MSIX package
-        run: dart run msix:create --version ${{ inputs.version }}
+        run: dart run msix:create --version $env:RELEASE_VERSION
+        working-directory: app/flutter
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
       - name: Build Windows installer
-        run: iscc /DAppVersion=${{ inputs.version }} scripts/inno_setup.iss
+        run: iscc /DAppVersion=$env:RELEASE_VERSION ../../scripts/inno_setup.iss
+        working-directory: app/flutter
 
       - name: Rename artifacts
         shell: bash
         run: |
-          mv build/windows/x64/runner/Release/CrispyTivi.msix \
-            "CrispyTivi-${{ inputs.version }}.msix" 2>/dev/null || true
-          mv build/windows/x64/runner/Release/*.msix \
-            "CrispyTivi-${{ inputs.version }}.msix" 2>/dev/null || true
+          mv app/flutter/build/windows/x64/runner/Release/CrispyTivi.msix \
+            "CrispyTivi-$RELEASE_VERSION.msix" 2>/dev/null || true
+          mv app/flutter/build/windows/x64/runner/Release/*.msix \
+            "CrispyTivi-$RELEASE_VERSION.msix" 2>/dev/null || true
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: |
-            Output/CrispyTivi-*-windows-setup.exe
+            app/flutter/Output/CrispyTivi-*-windows-setup.exe
             CrispyTivi-*.msix
           retention-days: 1
 
@@ -84,6 +95,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -120,8 +133,8 @@ jobs:
             --window-size 600 400 \
             --app-drop-link 400 200 \
             --icon-size 100 \
-            "CrispyTivi-${{ inputs.version }}.dmg" \
-            "build/macos/Build/Products/Release/crispy_tivi.app"
+            "CrispyTivi-$RELEASE_VERSION.dmg" \
+            "app/flutter/build/macos/Build/Products/Release/crispy_tivi.app"
 
       # ── iOS ──
       - name: Build Rust for iOS
@@ -132,10 +145,10 @@ jobs:
 
       - name: Package IPA
         run: |
-          cd build/ios/archive/Runner.xcarchive/Products/Applications
+          cd app/flutter/build/ios/archive/Runner.xcarchive/Products/Applications
           mkdir Payload
           cp -r Runner.app Payload/
-          zip -r "$GITHUB_WORKSPACE/CrispyTivi-${{ inputs.version }}.ipa" Payload
+          zip -r "$GITHUB_WORKSPACE/CrispyTivi-$RELEASE_VERSION.ipa" Payload
 
       - uses: actions/upload-artifact@v4
         with:
@@ -153,6 +166,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -174,6 +189,18 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - uses: android-actions/setup-android@v3
+
+        with:
+
+          packages: platform-tools ndk;27.0.12077973
+
+      - name: Point cargo-ndk at the NDK
+
+        run: |
+
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -182,6 +209,7 @@ jobs:
 
       - name: Install Linux build deps
         run: |
+          command -v apt-get >/dev/null || exit 0
           sudo apt-get update
           sudo apt-get install -y \
             clang cmake ninja-build \
@@ -199,11 +227,11 @@ jobs:
         run: cd app/flutter && flutter build linux --release
 
       - name: Create AppImage
-        run: bash scripts/build_appimage.sh ${{ inputs.version }}
+        run: bash scripts/build_appimage.sh "$RELEASE_VERSION"
 
       - name: Create .deb package
         run: |
-          PKG_DIR="crispy-tivi_${{ inputs.version }}_amd64"
+          PKG_DIR="crispy-tivi_${RELEASE_VERSION}_amd64"
           mkdir -p "$PKG_DIR/DEBIAN"
           mkdir -p "$PKG_DIR/usr/bin"
           mkdir -p "$PKG_DIR/usr/lib/crispy-tivi"
@@ -212,7 +240,7 @@ jobs:
 
           cat > "$PKG_DIR/DEBIAN/control" << CTRL
           Package: crispy-tivi
-          Version: ${{ inputs.version }}
+          Version: $RELEASE_VERSION
           Section: video
           Priority: optional
           Architecture: amd64
@@ -249,7 +277,7 @@ jobs:
           DESKTOP
 
           dpkg-deb --build "$PKG_DIR"
-          mv "${PKG_DIR}.deb" "CrispyTivi-${{ inputs.version }}-amd64.deb"
+          mv "${PKG_DIR}.deb" "CrispyTivi-${RELEASE_VERSION}-amd64.deb"
 
       # ── Android ──
       - name: Build Rust for Android
@@ -264,9 +292,9 @@ jobs:
       - name: Rename Android artifacts
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk \
-            "CrispyTivi-${{ inputs.version }}.apk"
+            "CrispyTivi-$RELEASE_VERSION.apk"
           cp build/app/outputs/bundle/release/app-release.aab \
-            "CrispyTivi-${{ inputs.version }}.aab"
+            "CrispyTivi-$RELEASE_VERSION.aab"
 
       # ── Web ──
       - name: Build Web
@@ -275,7 +303,7 @@ jobs:
       - name: Zip web build
         run: |
           cd app/flutter/build/web
-          zip -r "../../CrispyTivi-${{ inputs.version }}-web.zip" .
+          zip -r "../../CrispyTivi-$RELEASE_VERSION-web.zip" .
 
       - uses: actions/upload-artifact@v4
         with:
@@ -297,6 +325,8 @@ jobs:
     needs: [build-windows, build-macos-ios, build-linux-android-web]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/download-artifact@v4
         with:
@@ -310,7 +340,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ inputs.version }}" \
-            --title "CrispyTivi v${{ inputs.version }}" \
+          gh release create "v$RELEASE_VERSION" \
+            --title "CrispyTivi v$RELEASE_VERSION" \
             --generate-notes \
             release-artifacts/*

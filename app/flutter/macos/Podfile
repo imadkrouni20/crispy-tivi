@@ -64,7 +64,7 @@ post_install do |installer|
       'Build Rust FFI',
     )
     phase.shell_script = <<~SH
-      bash "$SRCROOT/../scripts/build_rust.sh" macos
+      bash "$SRCROOT/../../../scripts/build_rust.sh" macos
     SH
     # Move to run before "Compile Sources".
     runner.build_phases.unshift(

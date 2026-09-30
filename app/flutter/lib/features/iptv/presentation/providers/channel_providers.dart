@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:collection/collection.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -21,7 +23,11 @@ export 'channel_reorder_actions.dart';
 class ChannelListNotifier extends Notifier<ChannelListState> {
   @override
   ChannelListState build() {
-    ref.watch(effectiveSourceIdsProvider);
+    ref.listen(effectiveSourceIdsProvider, (previous, next) {
+      if (previous != null) {
+        unawaited(refreshFromBackend());
+      }
+    });
 
     ref.listen(favoritesControllerProvider, (prev, next) {
       final favs = next.asData?.value;

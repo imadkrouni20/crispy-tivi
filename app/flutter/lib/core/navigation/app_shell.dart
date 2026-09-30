@@ -217,7 +217,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// | Route       | FAB (legacy/hard-coded)      | Phone FAB (section) |
   /// |-------------|------------------------------|---------------------|
   /// | `/tv`       | Record (red dot)             | Last Channel        |
-  /// | `/dvr`      | Schedule (calendar)          | —                   |
+  /// | `/dvr`      | Speed dial in screen         | none                |
   /// | `/favorites`| New List (add)               | —                   |
   /// | `/home`     | —                            | What's On           |
   /// | `/vods`     | —                            | Random Pick         |
@@ -233,17 +233,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     // Suppress FAB entirely on large/TV layout.
     if (isLarge) return null;
 
-    // ── Legacy section FABs (DVR / Favorites keep their dedicated actions) ──
+    // Legacy section FABs.
     final legacyFab = switch (location) {
-      AppRoutes.dvr => FloatingActionButton.extended(
-        heroTag: 'fab_schedule',
-        onPressed: () {},
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(CrispyRadius.tv)),
-        ),
-        icon: const Icon(Icons.calendar_month_rounded),
-        label: Text(context.l10n.fabSchedule),
-      ),
       AppRoutes.favorites => FloatingActionButton.extended(
         heroTag: 'fab_new_list',
         onPressed: () {},

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/data/dart_algorithm_fallbacks.dart';
@@ -118,8 +120,12 @@ class VodNotifier extends Notifier<VodState> {
     _disposed = false;
     ref.onDispose(() => _disposed = true);
 
-    // Rebuild when source filter changes.
-    ref.watch(effectiveSourceIdsProvider);
+    // Preserve loaded items when the source filter changes.
+    ref.listen(effectiveSourceIdsProvider, (previous, next) {
+      if (previous != null) {
+        unawaited(refreshFromBackend());
+      }
+    });
 
     // Sync isFavorite flags when profile favorites change.
     ref.listen(vodFavoritesProvider, (_, next) {

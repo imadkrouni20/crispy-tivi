@@ -8,6 +8,7 @@ import 'package:crispy_tivi/config/config_service.dart';
 import 'package:crispy_tivi/config/settings_notifier.dart';
 import 'package:crispy_tivi/core/data/crispy_backend.dart';
 import 'package:crispy_tivi/core/data/memory_backend.dart';
+import 'package:crispy_tivi/core/domain/entities/playlist_source.dart';
 import 'package:crispy_tivi/core/testing/test_keys.dart';
 import 'package:crispy_tivi/core/navigation/app_router.dart';
 import 'package:crispy_tivi/core/theme/app_theme.dart';
@@ -26,6 +27,7 @@ import 'package:crispy_tivi/features/voice_search/data/services/speech_service.d
 import 'package:crispy_tivi/features/vod/presentation/providers/vod_providers.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../test/helpers/mock_crispy_player.dart';
 import 'test_data.dart';
 
 /// Default test config matching `assets/config/app_config.json`.
@@ -92,7 +94,42 @@ class _NoOpVoiceSearchService extends VoiceSearchService {
 /// ProviderExceptions when navigating to the player screen.
 class _MockPlayerService extends Mock implements PlayerService {
   @override
+  final MockCrispyPlayer player = MockCrispyPlayer();
+
+  @override
   Stream<PlaybackState> get stateStream => Stream<PlaybackState>.empty();
+
+  @override
+  Future<void> play(
+    String url, {
+    bool isLive = false,
+    String? channelName,
+    String? channelLogoUrl,
+    String? currentProgram,
+    Map<String, String>? headers,
+  }) async {}
+
+  @override
+  Future<void> setSpeed(double speed) async {}
+
+  // Polled by providers while the player overlay is mounted.
+  @override
+  List<(double, double)> getCacheRanges() => const [];
+
+  @override
+  Map<String, String> get streamInfo => const {};
+
+  @override
+  int get retryCount => 0;
+
+  @override
+  String? get currentUrl => null;
+
+  @override
+  DateTime? get sleepTimerEndTime => null;
+
+  @override
+  Future<void> stop() async {}
 }
 
 /// Fake sync service that populates the cache with
@@ -113,7 +150,6 @@ class FakeSyncService extends PlaylistSyncService {
     // 1. Save to cache (persistence).
     await cache.saveChannels(channels);
     await cache.saveVodItems(vods);
-    await cache.saveEpgEntries(TestData.sampleEpg);
 
     // 2. Push to UI notifiers (display).
     final groups =
@@ -143,12 +179,23 @@ class FakeSyncService extends PlaylistSyncService {
       remappedEpg[channelId] = entry.value;
     }
 
+    await cache.saveEpgEntries(remappedEpg);
+
     // 4. Push EPG to UI notifier.
     _localRef
         .read(epgProvider.notifier)
         .loadData(channels: channels, entries: remappedEpg);
 
     return channels.length + vods.length;
+  }
+
+  @override
+  Future<SyncReport> syncSource(PlaylistSource source) async {
+    await syncAll();
+    return SyncReport(
+      channelsCount: TestData.sampleChannels.length,
+      vodCount: TestData.sampleVodItems.length,
+    );
   }
 }
 

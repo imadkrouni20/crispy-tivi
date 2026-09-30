@@ -25,6 +25,12 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  ProviderContainer getContainer(WidgetTester tester) {
+    final app = find.byType(MaterialApp);
+    expect(app, findsOneWidget);
+    return ProviderScope.containerOf(tester.element(app));
+  }
+
   group('Mini-Player Lifecycle Flow', () {
     // ──────────────────────────────────────────────────────────
     // Test 1: Background mode shows MiniPlayerBar
@@ -44,8 +50,8 @@ void main() {
       // Background mode is what the app transitions to when the user
       // presses Back from the fullscreen player on a non-preview route.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
       });
       await tester.pump(const Duration(milliseconds: 200));
@@ -54,8 +60,7 @@ void main() {
       // Background mode keeps audio playing. The idle check verifies
       // the mode is NOT idle (i.e., still playing).
       final modeAfterBack = await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         return container.read(playerModeProvider).mode;
       });
 
@@ -119,8 +124,8 @@ void main() {
 
       // Enter background mode.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
       });
       await tester.pump(const Duration(milliseconds: 100));
@@ -130,8 +135,7 @@ void main() {
 
       // Phase 18 item 3: navigating to other screens must not stop playback.
       final modeAfterNav = await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         return container.read(playerModeProvider).mode;
       });
 
@@ -165,8 +169,8 @@ void main() {
 
         // Enter background mode.
         await tester.runAsync(() async {
-          final element = tester.element(find.byType(ProviderScope).first);
-          final container = ProviderScope.containerOf(element);
+          final container = getContainer(tester);
+          container.read(playerModeProvider.notifier).enterFullscreen();
           container.read(playerModeProvider.notifier).exitToBackground();
         });
         await tester.pump(const Duration(milliseconds: 100));
@@ -175,8 +179,7 @@ void main() {
         for (final tab in ['Settings', 'Home', 'VODs']) {
           await navigateToTab(tester, tab);
           final mode = await tester.runAsync(() async {
-            final element = tester.element(find.byType(ProviderScope).first);
-            final container = ProviderScope.containerOf(element);
+            final container = getContainer(tester);
             return container.read(playerModeProvider).mode;
           });
 
@@ -211,23 +214,21 @@ void main() {
 
       // Enter background mode (simulates mini-player visible).
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
       });
       await tester.pump(const Duration(milliseconds: 200));
 
       // Simulate tap on mini-player: call enterFullscreen as the bar does.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         container.read(playerModeProvider.notifier).enterFullscreen();
       });
       await tester.pump(const Duration(milliseconds: 200));
 
       final modeAfterTap = await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         return container.read(playerModeProvider).mode;
       });
 
@@ -261,8 +262,8 @@ void main() {
 
       // Enter background mode.
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
       });
       await tester.pump(const Duration(milliseconds: 200));
@@ -270,16 +271,14 @@ void main() {
       // Simulate × button: stop service and set idle.
       // This mirrors MiniPlayerBar._dismiss().
       await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         container.read(playerServiceProvider).stop();
         container.read(playerModeProvider.notifier).setIdle();
       });
       await tester.pump(const Duration(milliseconds: 200));
 
       final modeAfterClose = await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         return container.read(playerModeProvider).mode;
       });
 
@@ -313,8 +312,7 @@ void main() {
 
       // Ensure player is in idle state (default).
       final mode = await tester.runAsync(() async {
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
         return container.read(playerModeProvider).mode;
       });
 
@@ -361,10 +359,10 @@ void main() {
         await pumpAppReady(tester);
         await selectDefaultProfile(tester);
 
-        final element = tester.element(find.byType(ProviderScope).first);
-        final container = ProviderScope.containerOf(element);
+        final container = getContainer(tester);
 
         // Step 1: Enter background mode (user pressed Back from player).
+        container.read(playerModeProvider.notifier).enterFullscreen();
         container.read(playerModeProvider.notifier).exitToBackground();
         await tester.pump(const Duration(milliseconds: 100));
 

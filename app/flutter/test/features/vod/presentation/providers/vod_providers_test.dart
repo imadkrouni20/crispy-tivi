@@ -1,6 +1,8 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:crispy_tivi/core/data/cache_service.dart';
 import 'package:crispy_tivi/core/data/memory_backend.dart';
+import 'package:crispy_tivi/core/providers/source_filter_provider.dart';
 import 'package:crispy_tivi/features/vod/presentation/providers/vod_providers.dart';
 import 'package:crispy_tivi/features/vod/domain/entities/vod_item.dart';
 
@@ -81,6 +83,30 @@ void main() {
         4,
       ); // All items because category is cleared
     });
+  });
+
+  test('reloads cached VOD when the source filter changes', () async {
+    final backend = MemoryBackend();
+    final cache = CacheService(backend);
+    const vod = VodItem(
+      id: 'vod-1',
+      name: 'Cached Movie',
+      streamUrl: 'https://example.com/movie',
+      type: VodType.movie,
+      sourceId: 'source-1',
+    );
+    await cache.saveVodItems([vod]);
+    final container = ProviderContainer(
+      overrides: [cacheServiceProvider.overrideWithValue(cache)],
+    );
+    addTearDown(container.dispose);
+
+    container.read(vodProvider);
+    container.read(vodProvider.notifier).loadData([vod]);
+    container.read(sourceFilterProvider.notifier).toggle('source-1');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(container.read(vodProvider).items.map((item) => item.id), ['vod-1']);
   });
 
   group('CacheService.sortVodItems (via VodSortOption.sortByKey)', () {

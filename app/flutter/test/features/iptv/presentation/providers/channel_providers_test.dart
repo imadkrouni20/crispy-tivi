@@ -1,10 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:crispy_tivi/core/data/cache_service.dart';
+import 'package:crispy_tivi/core/data/memory_backend.dart';
+import 'package:crispy_tivi/core/providers/source_filter_provider.dart';
 import 'package:crispy_tivi/features/favorites/domain/repositories/favorites_repository.dart';
 import 'package:crispy_tivi/features/favorites/data/repositories/favorites_repository_impl.dart';
 import 'package:crispy_tivi/features/favorites/presentation/providers/favorites_controller.dart';
 import 'package:crispy_tivi/features/iptv/domain/entities/channel.dart';
+import 'package:crispy_tivi/features/iptv/presentation/providers/iptv_service_providers.dart'
+    show crispyBackendProvider;
 import 'package:crispy_tivi/features/iptv/presentation/providers/channel_providers.dart';
 import 'package:crispy_tivi/features/profiles/data/profile_service.dart';
 import 'package:crispy_tivi/features/profiles/data/source_access_service.dart';
@@ -47,6 +52,7 @@ void main() {
   group('ChannelListNotifier favorites sync', () {
     late ProviderContainer container;
     late _MockFavoritesRepository favoritesRepository;
+    late MemoryBackend memoryBackend;
 
     const favoriteChannel = Channel(
       id: 'fav-1',
@@ -63,8 +69,11 @@ void main() {
       favoritesRepository = _MockFavoritesRepository([
         favoriteChannel.copyWith(isFavorite: true),
       ]);
+      memoryBackend = MemoryBackend();
       container = ProviderContainer(
         overrides: [
+          crispyBackendProvider.overrideWithValue(memoryBackend),
+          cacheServiceProvider.overrideWithValue(CacheService(memoryBackend)),
           favoritesRepositoryProvider.overrideWithValue(favoritesRepository),
           profileServiceProvider.overrideWith(_FakeProfileService.new),
           accessibleSourcesProvider.overrideWith((ref) async => null),
@@ -131,5 +140,38 @@ void main() {
         isTrue,
       );
     });
+
+    test(
+      'source filter changes reload channels without dropping the fixture',
+      () async {
+        const ukChannel = Channel(
+          id: 'uk-channel',
+          name: 'BBC One',
+          streamUrl: 'https://example.invalid/bbc-one',
+          group: 'UK Entertainment',
+          sourceId: 'uk-source',
+        );
+        const otherChannel = Channel(
+          id: 'other-channel',
+          name: 'CNN',
+          streamUrl: 'https://example.invalid/cnn',
+          group: 'US News',
+          sourceId: 'other-source',
+        );
+        final fixture = [ukChannel, otherChannel];
+        await CacheService(memoryBackend).saveChannels(fixture);
+        container.read(channelListProvider.notifier).loadChannels(
+          fixture,
+          const ['UK Entertainment', 'US News'],
+        );
+
+        container.read(sourceFilterProvider.notifier).selectOnly('uk-source');
+        await Future<void>.delayed(Duration.zero);
+
+        final state = container.read(channelListProvider);
+        expect(state.channels, contains(ukChannel));
+        expect(state.displayGroups, contains('UK Entertainment'));
+      },
+    );
   });
 }

@@ -153,7 +153,7 @@ class ExternalPlayerService {
     final vlcUri = Uri.parse('vlc://$streamUrl');
     try {
       if (await canLaunchUrl(vlcUri)) {
-        return launchUrl(vlcUri);
+        return await launchUrl(vlcUri);
       }
     } catch (e) {
       debugPrint('VLC vlc:// scheme failed: $e');
@@ -212,7 +212,7 @@ class ExternalPlayerService {
     final intentUri = Uri.parse(sb.toString());
     try {
       if (await canLaunchUrl(intentUri)) {
-        return launchUrl(intentUri);
+        return await launchUrl(intentUri);
       }
     } catch (e) {
       debugPrint('MX Player intent launch failed: $e');
@@ -246,7 +246,7 @@ class ExternalPlayerService {
     );
     try {
       if (await canLaunchUrl(intentUri)) {
-        return launchUrl(intentUri);
+        return await launchUrl(intentUri);
       }
     } catch (e) {
       debugPrint('Intent launch for $package failed: $e');
@@ -273,7 +273,7 @@ class ExternalPlayerService {
     );
     try {
       if (await canLaunchUrl(infuseUri)) {
-        return launchUrl(infuseUri);
+        return await launchUrl(infuseUri);
       }
     } catch (e) {
       debugPrint('Infuse URL scheme failed: $e');
@@ -372,7 +372,7 @@ class ExternalPlayerService {
     final vlcUri = Uri.parse('vlc://$streamUrl');
     try {
       if (await canLaunchUrl(vlcUri)) {
-        return launchUrl(vlcUri);
+        return await launchUrl(vlcUri);
       }
     } catch (e) {
       debugPrint('VLC vlc:// scheme failed: $e');
@@ -430,7 +430,7 @@ class ExternalPlayerService {
     );
     try {
       if (await canLaunchUrl(iinaUri)) {
-        return launchUrl(iinaUri);
+        return await launchUrl(iinaUri);
       }
     } catch (e) {
       debugPrint('IINA URL scheme failed: $e');
@@ -460,7 +460,7 @@ class ExternalPlayerService {
     final potUri = Uri.parse('potplayer://$streamUrl');
     try {
       if (await canLaunchUrl(potUri)) {
-        return launchUrl(potUri);
+        return await launchUrl(potUri);
       }
     } catch (e) {
       debugPrint('PotPlayer URL scheme failed: $e');

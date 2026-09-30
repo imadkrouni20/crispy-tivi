@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const chromiumExecutable = process.env.CHROME_EXECUTABLE ?? "/usr/bin/chromium";
+const chromiumExecutable = process.env.CHROME_EXECUTABLE;
 
 /**
  * Playwright configuration for CrispyTivi Flutter web app.
@@ -44,11 +44,11 @@ export default defineConfig({
   /* Shared settings for all projects. */
   use: {
     browserName: "chromium",
-    launchOptions: {
-      executablePath: chromiumExecutable,
-    },
+    launchOptions: chromiumExecutable
+      ? { executablePath: chromiumExecutable }
+      : {},
     /* Flutter web dev server URL. */
-    baseURL: "http://127.0.0.1:3000",
+    baseURL: `http://127.0.0.1:${process.env.CRISPY_WEB_PORT ?? "3000"}`,
 
     /* Capture screenshot on failure for debugging. */
     screenshot: "only-on-failure",

@@ -12,7 +12,6 @@ import '../../../../config/settings_state.dart';
 import '../../../../core/testing/test_keys.dart';
 import '../../../../core/theme/crispy_animation.dart';
 import '../../../../core/utils/platform_capabilities.dart';
-import '../../../../core/utils/screen_brightness_helper.dart';
 import '../../../favorites/presentation/providers/favorites_history_provider.dart';
 import '../providers/pip_provider.dart';
 import '../../domain/entities/playback_state.dart';
@@ -20,6 +19,7 @@ import '../providers/playback_progress_provider.dart';
 import '../providers/player_providers.dart';
 import '../screens/player_external_launch.dart';
 import 'channel_zap_overlay.dart';
+import 'player_fullscreen_exit.dart';
 import 'player_fullscreen_keyboard.dart';
 import 'player_fullscreen_zap.dart';
 import 'player_gesture_handler.dart';
@@ -62,6 +62,7 @@ class _PlayerFullscreenOverlayState
         PlayerLifecycleMixin,
         PlayerGestureMixin,
         PlayerHistoryMixin,
+        PlayerFullscreenExitMixin,
         PlayerFullscreenZapMixin,
         PlayerFullscreenKeyboardMixin {
   late final FocusNode _focusNode;
@@ -84,6 +85,7 @@ class _PlayerFullscreenOverlayState
   @override
   void initState() {
     super.initState();
+    initExitState();
     _focusNode = FocusNode();
     WidgetsBinding.instance.addObserver(this);
     initWindowListener();
@@ -191,7 +193,7 @@ class _PlayerFullscreenOverlayState
 
   @override
   void dispose() {
-    disarmAutoPip();
+    pipNotifier.setAutoPipReady(ready: false);
     cancelFullscreenListener?.call();
     WidgetsBinding.instance.removeObserver(this);
     if (isWindowListenerRegistered) {
@@ -206,26 +208,14 @@ class _PlayerFullscreenOverlayState
         }
       });
     }
-    if (isInPip) ref.read(pipProvider.notifier).exitPip();
+    if (isInPip) pipNotifier.exitPip();
 
     // Restore all orientations on player exit (REQ-05).
     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
       SystemChrome.setPreferredOrientations([]);
     }
 
-    // Reset screen brightness to system default on player exit (REQ-04).
-    if (ref.read(screenBrightnessProvider) != null) {
-      ref.read(screenBrightnessProvider.notifier).resetToSystem();
-      ScreenBrightnessHelper.resetBrightness();
-    }
-
-    // Reset always-on-top on player exit.
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
-      if (ref.read(alwaysOnTopProvider)) {
-        ref.read(alwaysOnTopProvider.notifier).set(false);
-        windowManager.setAlwaysOnTop(false);
-      }
-    }
+    resetExitState();
 
     zapOverlayTimer?.cancel();
     _singleClickTimer?.cancel();
@@ -234,7 +224,7 @@ class _PlayerFullscreenOverlayState
     );
     _focusNode.dispose();
     disposeGestures();
-    disposeHistory();
+    saveProgressOnExit();
     super.dispose();
   }
 
