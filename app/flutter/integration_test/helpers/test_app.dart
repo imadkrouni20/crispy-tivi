@@ -112,6 +112,22 @@ class _MockPlayerService extends Mock implements PlayerService {
   @override
   Future<void> setSpeed(double speed) async {}
 
+  // Polled by providers while the player overlay is mounted.
+  @override
+  List<(double, double)> getCacheRanges() => const [];
+
+  @override
+  Map<String, String> get streamInfo => const {};
+
+  @override
+  int get retryCount => 0;
+
+  @override
+  String? get currentUrl => null;
+
+  @override
+  DateTime? get sleepTimerEndTime => null;
+
   @override
   Future<void> stop() async {}
 }
