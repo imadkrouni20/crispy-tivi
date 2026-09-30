@@ -198,12 +198,13 @@ test.describe("Real Source Smoke", () => {
     } catch {
       const viewport = page.viewportSize();
       if (viewport == null) throw new Error("Series card requires a viewport");
-      // The expanded sidebar can cover the card's left side on larger layouts.
+      // The expanded sidebar (250px wide) covers the card's left side on
+      // larger layouts, so aim right of it.
       const point: [number, number] =
         viewport.width < 840
           ? [180, 400]
           : viewport.width < 1200
-            ? [220, 100]
+            ? [300, 100]
             : viewport.width < 1920
               ? [300, 250]
               : [300, 380];
