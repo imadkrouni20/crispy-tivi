@@ -30,7 +30,7 @@ class SeriesDetail {
   final String? genre;
   final String? cast;
   final String? director;
-  final Map<int, List<SeriesEpisode>> episodes; // season → episodes
+  final Map<int, List<SeriesEpisode>> episodes;
 
   SeriesDetail({
     required this.id,
@@ -53,7 +53,9 @@ class SeriesDetail {
     String username,
     String password,
   ) {
-    final info = (data['info'] as Map?) ?? {};
+    final info = data['info'] is Map
+        ? Map<String, dynamic>.from(data['info'] as Map)
+        : <String, dynamic>{};
     final eps = <int, List<SeriesEpisode>>{};
 
     final episodesRaw = data['episodes'];
@@ -63,20 +65,22 @@ class SeriesDetail {
         if (epList is List) {
           final list = <SeriesEpisode>[];
           for (final e in epList) {
-            final id = e['id']?.toString() ?? '';
+            if (e is! Map) continue;
+            final em = Map<String, dynamic>.from(e);
+            final id = em['id']?.toString() ?? '';
             final epNum =
-                int.tryParse(e['episode_num']?.toString() ?? '0') ?? 0;
-            final ext = e['container_extension'] ?? 'mp4';
-            final title = e['title']?.toString() ?? 'حلقة $epNum';
+                int.tryParse(em['episode_num']?.toString() ?? '0') ?? 0;
+            final ext = em['container_extension']?.toString() ?? 'mp4';
+            final title = em['title']?.toString() ?? 'حلقة $epNum';
             list.add(SeriesEpisode(
               id: id,
               title: title,
               season: season,
               episode: epNum,
               streamUrl: '$base/series/$username/$password/$id.$ext',
-              plot: e['plot']?.toString(),
-              duration: e['duration']?.toString(),
-              poster: e['movie_image']?.toString() ??
+              plot: em['plot']?.toString(),
+              duration: em['duration']?.toString(),
+              poster: em['movie_image']?.toString() ??
                   info['cover']?.toString(),
             ));
           }

@@ -32,10 +32,11 @@ class XtreamService {
       final categories =
           await _fetchCategories(base, username, password, 'live');
       for (final item in data) {
-        final streamId = item['stream_id'];
-        final name = item['name'] ?? 'قناة';
-        final icon = item['stream_icon'];
-        final catId = item['category_id']?.toString();
+        final m = item as Map;
+        final streamId = m['stream_id'];
+        final name = m['name'] ?? 'قناة';
+        final icon = m['stream_icon'];
+        final catId = m['category_id']?.toString();
         final group = categories[catId] ?? 'عام';
         channels.add(Channel(
           name: name.toString(),
@@ -49,11 +50,12 @@ class XtreamService {
       final categories =
           await _fetchCategories(base, username, password, 'vod');
       for (final item in data) {
-        final streamId = item['stream_id'];
-        final name = item['name'] ?? 'فيلم';
-        final icon = item['stream_icon'] ?? item['cover'];
-        final ext = item['container_extension'] ?? 'mp4';
-        final catId = item['category_id']?.toString();
+        final m = item as Map;
+        final streamId = m['stream_id'];
+        final name = m['name'] ?? 'فيلم';
+        final icon = m['stream_icon'] ?? m['cover'];
+        final ext = m['container_extension'] ?? 'mp4';
+        final catId = m['category_id']?.toString();
         final group = categories[catId] ?? 'أفلام';
         channels.add(Channel(
           name: name.toString(),
@@ -67,10 +69,11 @@ class XtreamService {
       final categories =
           await _fetchCategories(base, username, password, 'series');
       for (final item in data) {
-        final seriesId = item['series_id'];
-        final name = item['name'] ?? 'مسلسل';
-        final icon = item['cover'];
-        final catId = item['category_id']?.toString();
+        final m = item as Map;
+        final seriesId = m['series_id'];
+        final name = m['name'] ?? 'مسلسل';
+        final icon = m['cover'];
+        final catId = m['category_id']?.toString();
         final group = categories[catId] ?? 'مسلسلات';
         channels.add(Channel(
           name: name.toString(),
@@ -101,8 +104,9 @@ class XtreamService {
 
       final map = <String, String>{};
       for (final cat in data) {
-        final id = cat['category_id']?.toString();
-        final name = cat['category_name']?.toString();
+        final m = cat as Map;
+        final id = m['category_id']?.toString();
+        final name = m['category_name']?.toString();
         if (id != null && name != null) map[id] = name;
       }
       return map;
@@ -126,7 +130,9 @@ class XtreamService {
       if (r.statusCode != 200) return null;
       final data = jsonDecode(utf8.decode(r.bodyBytes));
       if (data is! Map) return null;
-      return MovieDetail.fromJson(data, base, username, password, vodId);
+      // 🔑 cast صريح
+      final map = Map<String, dynamic>.from(data);
+      return MovieDetail.fromJson(map, base, username, password, vodId);
     } catch (e) {
       return null;
     }
@@ -147,7 +153,9 @@ class XtreamService {
       if (r.statusCode != 200) return null;
       final data = jsonDecode(utf8.decode(r.bodyBytes));
       if (data is! Map) return null;
-      return SeriesDetail.fromJson(data, base, username, password);
+      // 🔑 cast صريح
+      final map = Map<String, dynamic>.from(data);
+      return SeriesDetail.fromJson(map, base, username, password);
     } catch (e) {
       return null;
     }

@@ -32,10 +32,14 @@ class MovieDetail {
     String password,
     String vodId,
   ) {
-    final info = (data['info'] as Map?) ?? {};
-    final movieData = (data['movie_data'] as Map?) ?? {};
+    final info = data['info'] is Map
+        ? Map<String, dynamic>.from(data['info'] as Map)
+        : <String, dynamic>{};
+    final movieData = data['movie_data'] is Map
+        ? Map<String, dynamic>.from(data['movie_data'] as Map)
+        : <String, dynamic>{};
 
-    final ext = movieData['container_extension'] ?? 'mp4';
+    final ext = movieData['container_extension']?.toString() ?? 'mp4';
     final streamUrl = '$base/movie/$username/$password/$vodId.$ext';
 
     return MovieDetail(
