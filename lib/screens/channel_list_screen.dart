@@ -4,6 +4,7 @@ import '../models/channel.dart';
 import '../services/m3u_parser.dart';
 import '../services/xtream_service.dart';
 import '../services/storage_service.dart';
+import '../services/cache_service.dart';
 import '../config/breakpoints.dart';
 import 'player_screen.dart';
 
@@ -24,6 +25,7 @@ class ChannelListScreen extends StatefulWidget {
 }
 
 class _ChannelListScreenState extends State<ChannelListScreen> {
+  final _cache = CacheService();
   List<Channel> _channels = [];
   List<Channel> _filtered = [];
   List<String> _groups = [];
@@ -32,10 +34,14 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
   String _selectedGroup = 'الكل';
   final _searchController = TextEditingController();
 
+  String get _cacheKey => widget.favoritesOnly
+      ? 'favorites'
+      : (widget.contentType ?? 'm3u');
+
   @override
   void initState() {
     super.initState();
-    _loadChannels();
+    _init();
   }
 
   @override
@@ -44,75 +50,135 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
     super.dispose();
   }
 
-  Future<void> _loadChannels() async {
+  Future<void> _init() async {
+    // 1. إذا كان لدينا كاش صالح ولم يُطلب refresh → استخدمه فوراً
+    if (!widget.forceRefresh &&
+        _cache.has(_cacheKey) &&
+        _cache.isValid(_cacheKey)) {
+      _favorites = await StorageService.loadFavorites();
+      final cached = _cache.get(_cacheKey) ?? [];
+      _applyCacheData(cached);
+      return;
+    }
+
+    // 2. وإلا حمّل من الشبكة
+    await _loadChannels(force: widget.forceRefresh);
+  }
+
+  void _applyCacheData(List<Channel> data) {
+    // استخرج المجموعات
+    final groupsSet = <String>{};
+    for (final c in data) {
+      if (c.group != null && c.group!.isNotEmpty) groupsSet.add(c.group!);
+    }
+    if (!mounted) return;
+    setState(() {
+      _channels = data;
+      _groups = groupsSet.toList()..sort();
+      _filtered = data;
+      _loading = false;
+    });
+  }
+
+  Future<void> _loadChannels({bool force = false}) async {
     setState(() => _loading = true);
     _favorites = await StorageService.loadFavorites();
+    _cache.startLoading(_cacheKey);
 
     var channels = <Channel>[];
 
-    // 1. حاول تحميل من Xtream إذا كانت البيانات محفوظة
-    final xtreamCreds = await StorageService.loadXtreamCreds();
-    if (xtreamCreds != null) {
-      try {
-        final type = widget.contentType ?? 'live';
-        channels = await XtreamService.fetchStreams(
-          host: xtreamCreds['host']!,
-          username: xtreamCreds['username']!,
-          password: xtreamCreds['password']!,
-          type: type,
-        );
-      } catch (e) {
-        debugPrint('Xtream error: $e');
+    if (widget.favoritesOnly) {
+      // المفضلة: اجلب من كل المصادر (live + m3u)
+      final all = <Channel>[];
+      final m3uCache = _cache.get('m3u') ?? await StorageService.loadChannels();
+      all.addAll(m3uCache);
+      for (final t in ['live', 'vod', 'series']) {
+        final c = _cache.get(t);
+        if (c != null) all.addAll(c);
       }
-    }
-
-    // 2. إذا لم يوجد Xtream أو فشل، حمّل من M3U المخزنة
-    if (channels.isEmpty) {
-      var cached = await StorageService.loadChannels();
-
-      if (cached.isEmpty || widget.forceRefresh) {
-        final sources = await StorageService.loadSources();
-        if (sources.isNotEmpty) {
-          try {
-            final all = <Channel>[];
-            for (final src in sources) {
-              try {
-                final parsed = await M3UParser.parseFromUrl(src);
-                all.addAll(parsed);
-              } catch (e) {
-                debugPrint('خطأ في المصدر $src: $e');
-              }
-            }
-            cached = all;
-            await StorageService.saveChannels(cached);
-          } catch (e) {
-            debugPrint('خطأ: $e');
-          }
+      // إذا لم يوجد كاش إطلاقاً، حمّل من M3U
+      if (all.isEmpty) {
+        all.addAll(await StorageService.loadChannels());
+      }
+      channels =
+          all.where((c) => _favorites.contains(c.url)).toList();
+      _cache.set(_cacheKey, channels);
+    } else if (widget.contentType != null) {
+      // live / vod / series من Xtream
+      final creds = await StorageService.loadXtreamCreds();
+      if (creds != null) {
+        try {
+          channels = await XtreamService.fetchStreams(
+            host: creds['host']!,
+            username: creds['username']!,
+            password: creds['password']!,
+            type: widget.contentType!,
+          );
+          _cache.set(_cacheKey, channels);
+        } catch (e) {
+          debugPrint('Xtream error: $e');
+          channels = _cache.get(_cacheKey) ?? [];
+        }
+      } else {
+        // لا يوجد Xtream → استخدم M3U إذا كان contentType = live
+        if (widget.contentType == 'live') {
+          channels = await _loadM3U();
+          _cache.set(_cacheKey, channels);
         }
       }
-      channels = cached;
+    } else {
+      // M3U عادي
+      channels = await _loadM3U();
+      _cache.set(_cacheKey, channels);
     }
 
-    // 3. فلترة المفضلة فقط (إذا كنا في تبويب المفضلة)
-    if (widget.favoritesOnly) {
-      channels = channels.where((c) => _favorites.contains(c.url)).toList();
-    }
+    _cache.stopLoading(_cacheKey);
 
-    // 4. استخرج المجموعات
+    // استخرج المجموعات
     final groupsSet = <String>{};
     for (final c in channels) {
       if (c.group != null && c.group!.isNotEmpty) groupsSet.add(c.group!);
     }
-    final groups = groupsSet.toList()..sort();
 
-    if (mounted) {
-      setState(() {
-        _channels = channels;
-        _groups = groups;
-        _filtered = channels;
-        _loading = false;
-      });
+    if (!mounted) return;
+    setState(() {
+      _channels = channels;
+      _groups = groupsSet.toList()..sort();
+      _filtered = channels;
+      _loading = false;
+    });
+  }
+
+  Future<List<Channel>> _loadM3U() async {
+    final cached = _cache.get('m3u');
+    if (cached != null && cached.isNotEmpty && !widget.forceRefresh) {
+      return cached;
     }
+
+    var channels = await StorageService.loadChannels();
+
+    if (channels.isEmpty || widget.forceRefresh) {
+      final sources = await StorageService.loadSources();
+      if (sources.isNotEmpty) {
+        final all = <Channel>[];
+        for (final src in sources) {
+          try {
+            final parsed = await M3UParser.parseFromUrl(src);
+            all.addAll(parsed);
+          } catch (e) {
+            debugPrint('خطأ M3U $src: $e');
+          }
+        }
+        channels = all;
+        await StorageService.saveChannels(channels);
+      }
+    }
+    return channels;
+  }
+
+  Future<void> _refresh() async {
+    _cache.invalidate(_cacheKey);
+    await _loadChannels(force: true);
   }
 
   void _applyFilters() {
@@ -153,7 +219,7 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
 
     final content = Column(
       children: [
-        _buildSearchBar(padding),
+        _buildSearchBar(padding, context),
         _buildCounters(padding),
         if (!showSidebar) _buildGroupChips(),
         const SizedBox(height: 4),
@@ -172,45 +238,65 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
     return content;
   }
 
-  Widget _buildSearchBar(double padding) {
+  Widget _buildSearchBar(double padding, BuildContext context) {
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final vPad = isLandscape ? 6.0 : 12.0;
+
     return Padding(
-      padding: EdgeInsets.fromLTRB(padding, padding, padding, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              onChanged: (_) => _applyFilters(),
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'ابحث...',
-                hintStyle: const TextStyle(color: Colors.white54),
-                prefixIcon: const Icon(Icons.search, color: Colors.white54),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, color: Colors.white54),
-                        onPressed: () {
-                          _searchController.clear();
-                          _applyFilters();
-                        },
-                      )
-                    : null,
-                filled: true,
-                fillColor: const Color(0xFF1F2937),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+      padding: EdgeInsets.fromLTRB(padding, vPad, padding, vPad),
+      child: SizedBox(
+        height: isLandscape ? 40 : 52,
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                onChanged: (_) => _applyFilters(),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: isLandscape ? 13 : 15),
+                decoration: InputDecoration(
+                  hintText: 'ابحث...',
+                  hintStyle: const TextStyle(color: Colors.white54),
+                  prefixIcon: const Icon(Icons.search,
+                      color: Colors.white54, size: 20),
+                  isDense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 8),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          iconSize: 18,
+                          icon: const Icon(Icons.clear,
+                              color: Colors.white54),
+                          onPressed: () {
+                            _searchController.clear();
+                            _applyFilters();
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: const Color(0xFF1F2937),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            onPressed: _loadChannels,
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            tooltip: 'تحديث',
-          ),
-        ],
+            const SizedBox(width: 6),
+            SizedBox(
+              height: 40,
+              width: 40,
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                onPressed: _refresh,
+                icon: const Icon(Icons.refresh,
+                    color: Colors.white, size: 22),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -242,10 +328,10 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
 
   Widget _buildGroupChips() {
     return SizedBox(
-      height: 44,
+      height: 40,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
         children: [
           _chip('الكل', Icons.apps),
           ..._groups.map((g) => _chip(g, Icons.folder)),
@@ -262,15 +348,17 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
         selected: selected,
         showCheckmark: false,
         avatar: Icon(icon,
-            size: 16, color: selected ? Colors.white : Colors.white70),
+            size: 14, color: selected ? Colors.white : Colors.white70),
         label: Text(label),
         labelStyle: TextStyle(
           color: selected ? Colors.white : Colors.white70,
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: selected ? FontWeight.bold : FontWeight.normal,
         ),
         backgroundColor: const Color(0xFF1F2937),
         selectedColor: const Color(0xFF3B82F6),
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         onSelected: (_) {
           setState(() => _selectedGroup = label);
           _applyFilters();
@@ -405,7 +493,7 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: _loadChannels,
+              onPressed: _refresh,
               icon: const Icon(Icons.refresh),
               label: const Text('تحديث'),
               style: ElevatedButton.styleFrom(
@@ -430,7 +518,7 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
             context,
             MaterialPageRoute(
               builder: (_) =>
-                  PlayerScreen(url: channel.url, title: channel.name),
+                  PlayerScreen(url: channel.url, title: channel.name, logo: channel.logo),
             ),
           ),
           child: AnimatedContainer(
@@ -499,22 +587,23 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
                     onPressed: () async {
                       await StorageService.toggleFavorite(channel.url);
                       final favs = await StorageService.loadFavorites();
+                      // حدّث كاش المفضلة
+                      _cache.invalidate('favorites');
                       if (!mounted) return;
                       setState(() => _favorites = favs);
 
-                      // إذا كنا في تبويب المفضلة، احذف القناة فوراً من القائمة
                       if (widget.favoritesOnly &&
                           !favs.contains(channel.url)) {
                         setState(() {
-                          _channels.removeWhere(
-                              (c) => c.url == channel.url);
+                          _channels
+                              .removeWhere((c) => c.url == channel.url);
                         });
                         _applyFilters();
                       }
 
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          duration: const Duration(milliseconds: 800),
+                          duration: const Duration(milliseconds: 700),
                           backgroundColor: const Color(0xFF1F2937),
                           content: Text(
                             favs.contains(channel.url)

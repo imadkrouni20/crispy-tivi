@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import '../config/breakpoints.dart';
 import '../services/storage_service.dart';
+import '../services/cache_service.dart';
+import '../services/epg_service.dart';
 import 'channel_list_screen.dart';
 import 'add_source_screen.dart';
 import 'xtream_login_screen.dart';
+import 'epg_screen.dart';
 
 class ResponsiveHome extends StatefulWidget {
   const ResponsiveHome({super.key});
@@ -15,14 +18,51 @@ class ResponsiveHome extends StatefulWidget {
 class _ResponsiveHomeState extends State<ResponsiveHome> {
   int _selectedIndex = 0;
   int _refreshKey = 0;
+  Map<String, List<EpgProgram>> _epgData = {};
+  bool _epgLoading = false;
 
   final List<Map<String, dynamic>> _menuItems = const [
     {'icon': Icons.live_tv, 'label': 'مباشر'},
     {'icon': Icons.movie, 'label': 'أفلام'},
     {'icon': Icons.video_library, 'label': 'مسلسلات'},
     {'icon': Icons.favorite, 'label': 'المفضلة'},
+    {'icon': Icons.calendar_today, 'label': 'دليل البرامج'},
     {'icon': Icons.settings, 'label': 'الإعدادات'},
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEpgInBackground();
+  }
+
+  Future<void> _loadEpgInBackground() async {
+    final cache = CacheService();
+    if (cache.has('epg')) {
+      _epgData = cache.getEpg('epg') ?? {};
+      return;
+    }
+
+    final creds = await StorageService.loadXtreamCreds();
+    if (creds == null) return;
+
+    if (mounted) setState(() => _epgLoading = true);
+
+    try {
+      final url = EpgService.xtreamEpgUrl(
+          creds['host']!, creds['username']!, creds['password']!);
+      final data = await EpgService.fetchFromUrl(url);
+      cache.setEpg('epg', data);
+      if (mounted) {
+        setState(() {
+          _epgData = data;
+          _epgLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _epgLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +134,11 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
                   MaterialPageRoute(
                       builder: (_) => const XtreamLoginScreen()),
                 );
-                if (ok == true) setState(() => _refreshKey++);
+                if (ok == true) {
+                  CacheService().clear();
+                  setState(() => _refreshKey++);
+                  _loadEpgInBackground();
+                }
               },
             ),
             const SizedBox(height: 12),
@@ -110,7 +154,10 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
                   MaterialPageRoute(
                       builder: (_) => const AddSourceScreen()),
                 );
-                if (ok == true) setState(() => _refreshKey++);
+                if (ok == true) {
+                  CacheService().invalidate('m3u');
+                  setState(() => _refreshKey++);
+                }
               },
             ),
           ],
@@ -193,6 +240,21 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
           favoritesOnly: true,
         );
       case 4:
+        if (_epgLoading) {
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(color: Color(0xFF3B82F6)),
+                SizedBox(height: 16),
+                Text('جاري تحميل دليل البرامج...',
+                    style: TextStyle(color: Colors.white70)),
+              ],
+            ),
+          );
+        }
+        return EpgScreen(epgData: _epgData);
+      case 5:
         return _settingsPage();
       default:
         return const SizedBox();
@@ -218,27 +280,48 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
               context,
               MaterialPageRoute(builder: (_) => const XtreamLoginScreen()),
             );
-            if (ok == true) setState(() => _refreshKey++);
+            if (ok == true) {
+              CacheService().clear();
+              setState(() => _refreshKey++);
+              _loadEpgInBackground();
+            }
           },
         ),
         _settingTile(
           icon: Icons.refresh,
-          title: 'إعادة تحميل القنوات',
-          subtitle: 'تحميل المصادر من جديد',
+          title: 'إعادة تحميل كل البيانات',
+          subtitle: 'تحميل المصادر من جديد (سيستغرق وقتاً)',
           onTap: () {
+            CacheService().clear();
             setState(() {
               _refreshKey++;
               _selectedIndex = 0;
             });
+            _loadEpgInBackground();
+          },
+        ),
+        _settingTile(
+          icon: Icons.calendar_today,
+          title: 'تحديث دليل البرامج',
+          subtitle: 'تحميل EPG الآن',
+          onTap: () async {
+            CacheService().invalidateEpg('epg');
+            await _loadEpgInBackground();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('تم تحميل دليل البرامج')),
+              );
+            }
           },
         ),
         _settingTile(
           icon: Icons.delete_sweep,
           title: 'مسح القنوات المخزنة',
-          subtitle: 'حذف كل القنوات المحفوظة محلياً',
+          subtitle: 'حذف القنوات المحفوظة محلياً (يبقى المصدر)',
           color: Colors.orange,
           onTap: () async {
             await StorageService.clearChannels();
+            CacheService().clear();
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('تم مسح القنوات المخزنة')),
@@ -276,11 +359,15 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
             );
             if (confirm == true) {
               await StorageService.clearAll();
+              CacheService().clear();
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('تم مسح كل البيانات')),
                 );
-                setState(() => _refreshKey++);
+                setState(() {
+                  _refreshKey++;
+                  _epgData = {};
+                });
               }
             }
           },
@@ -332,13 +419,15 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
   Widget _buildBottomNav() {
     return NavigationBar(
       backgroundColor: const Color(0xFF111827),
+      height: 60,
       selectedIndex: _selectedIndex,
       onDestinationSelected: (i) => setState(() => _selectedIndex = i),
       destinations: _menuItems.map((item) {
         return NavigationDestination(
-          icon: Icon(item['icon'] as IconData, color: Colors.white54),
+          icon:
+              Icon(item['icon'] as IconData, color: Colors.white54, size: 22),
           selectedIcon: Icon(item['icon'] as IconData,
-              color: const Color(0xFF3B82F6)),
+              color: const Color(0xFF3B82F6), size: 22),
           label: item['label'] as String,
         );
       }).toList(),
@@ -347,26 +436,38 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
 
   Widget _buildTopBar(BuildContext context) {
     final padding = ScreenConfig.horizontalPadding(context);
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final vPad = isLandscape ? 4.0 : 10.0;
+    final titleSize = isLandscape ? 15.0 : 20.0;
+    final logoSize = isLandscape ? 22.0 : 28.0;
+
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: padding, vertical: 16),
+      padding: EdgeInsets.symmetric(horizontal: padding, vertical: vPad),
       color: const Color(0xFF111827),
       child: Row(
         children: [
-          const Icon(Icons.play_circle_fill,
-              color: Color(0xFF3B82F6), size: 32),
-          const SizedBox(width: 12),
-          const Text('IPTV Pro',
+          Icon(Icons.play_circle_fill,
+              color: const Color(0xFF3B82F6), size: logoSize),
+          SizedBox(width: isLandscape ? 6 : 10),
+          Text('IPTV Pro',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 22,
+                fontSize: titleSize,
                 fontWeight: FontWeight.bold,
               )),
           const Spacer(),
           IconButton(
+            iconSize: isLandscape ? 20 : 24,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
             icon: const Icon(Icons.search, color: Colors.white),
             onPressed: () {},
           ),
           IconButton(
+            iconSize: isLandscape ? 20 : 24,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
             icon: const Icon(Icons.person, color: Colors.white),
             onPressed: () {},
           ),

@@ -34,27 +34,29 @@ jobs:
       - name: Generate Android folder
         run: flutter create . --platforms=android --project-name crispy_tivi
 
-      - name: Configure AndroidManifest (TV + Internet + HTTP)
+      - name: Configure AndroidManifest (TV + Internet + HTTP + media_kit)
         run: |
           python3 << 'PYEOF'
           import re
           path = "android/app/src/main/AndroidManifest.xml"
           with open(path) as f:
               content = f.read()
-          
+
           block = '''    <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
               <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
               <uses-feature android:name="android.software.leanback" android:required="false"/>
               <uses-feature android:name="android.hardware.type.television" android:required="false"/>
           '''
           if 'android.software.leanback' not in content:
               content = content.replace('<application', block + '    <application', 1)
-          
+
           content = re.sub(
               r'<application(\s+)',
-              r'<application\1android:usesCleartextTraffic="true"\1',
+              r'<application\1android:usesCleartextTraffic="true"\1android:hardwareAccelerated="true"\1',
               content, count=1)
-          
+
           with open(path, 'w') as f:
               f.write(content)
           print(content[:2000])
