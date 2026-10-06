@@ -18,6 +18,15 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '11076708'
+          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses || true
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -33,6 +42,68 @@ jobs:
 
       - name: Generate Android folder
         run: flutter create . --platforms=android --project-name crispy_tivi
+
+      - name: Patch Gradle to SDK 36
+        run: |
+          python3 << 'PYEOF'
+          import re, os, glob
+
+          # 1) Patch android/app/build.gradle (or .kts)
+          candidates = [
+              "android/app/build.gradle",
+              "android/app/build.gradle.kts",
+          ]
+          for path in candidates:
+              if not os.path.exists(path):
+                  continue
+              with open(path) as f:
+                  c = f.read()
+
+              # Replace compileSdk value
+              c = re.sub(r'compileSdk\s*=?\s*\d+', 'compileSdk = 36', c)
+              c = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', c)
+
+              # Replace targetSdk value
+              c = re.sub(r'targetSdk\s*=?\s*\d+', 'targetSdk = 36', c)
+              c = re.sub(r'targetSdkVersion\s+\d+', 'targetSdkVersion 36', c)
+
+              # Replace minSdk if needed (media_kit needs >= 21, we use 21)
+              if 'minSdk' not in c and 'minSdkVersion' not in c:
+                  c = c.replace('targetSdk = 36', 'targetSdk = 36\n        minSdk = 21')
+
+              with open(path, 'w') as f:
+                  f.write(c)
+              print(f"✅ Patched {path}")
+
+          # 2) Patch android/build.gradle (root)
+          root = "android/build.gradle"
+          if os.path.exists(root):
+              with open(root) as f:
+                  c = f.read()
+              # force ext versions
+              if 'compileSdkVersion' in c:
+                  c = re.sub(r'compileSdkVersion\s+\d+',
+                             'compileSdkVersion 36', c)
+              if 'targetSdkVersion' in c:
+                  c = re.sub(r'targetSdkVersion\s+\d+',
+                             'targetSdkVersion 36', c)
+              with open(root, 'w') as f:
+                  f.write(c)
+              print("✅ Patched root build.gradle")
+
+          # 3) gradle.properties: enable AndroidX + Jetifier
+          gp = "android/gradle.properties"
+          if os.path.exists(gp):
+              with open(gp) as f:
+                  c = f.read()
+              if 'android.useAndroidX' not in c:
+                  c += '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n'
+              if 'org.gradle.jvmargs' not in c:
+                  c += '\norg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g\n'
+              with open(gp, 'w') as f:
+                  f.write(c)
+              print("✅ Patched gradle.properties")
+          PYEOF
 
       - name: Configure AndroidManifest (TV + Internet + HTTP + media_kit)
         run: |
@@ -59,11 +130,16 @@ jobs:
 
           with open(path, 'w') as f:
               f.write(content)
-          print(content[:2000])
+          print("✅ Manifest configured")
           PYEOF
 
+      - name: Clean before build
+        run: |
+          cd android && ./gradlew clean || true
+          cd ..
+
       - name: Build APK
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release --split-per-abi --no-tree-shake-icons
 
       - name: Collect APKs
         run: |
@@ -77,3 +153,14 @@ jobs:
           name: iptv-apk
           path: release-apks/*.apk
           retention-days: 30
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            android/app/build.gradle
+            android/build.gradle
+            android/gradle.properties
+          retention-days: 7
