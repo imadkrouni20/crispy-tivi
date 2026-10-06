@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/channel.dart';
 
@@ -7,7 +8,9 @@ class M3UParser {
     if (response.statusCode != 200) {
       throw Exception('فشل تحميل M3U: ${response.statusCode}');
     }
-    return parseFromString(response.body);
+    // 🔑 نجبر فك الترميز UTF-8 لتجنب مشكلة Mojibake
+    final content = utf8.decode(response.bodyBytes, allowMalformed: true);
+    return parseFromString(content);
   }
 
   static List<Channel> parseFromString(String content) {
@@ -20,12 +23,15 @@ class M3UParser {
     for (var line in lines) {
       line = line.trim();
       if (line.startsWith('#EXTINF:')) {
+        // اسم القناة بعد آخر فاصلة
         final nameMatch = RegExp(r',(.+)$').firstMatch(line);
         currentName = nameMatch?.group(1)?.trim();
 
+        // شعار القناة
         final logoMatch = RegExp(r'tvg-logo="([^"]*)"').firstMatch(line);
         currentLogo = logoMatch?.group(1);
 
+        // المجموعة
         final groupMatch = RegExp(r'group-title="([^"]*)"').firstMatch(line);
         currentGroup = groupMatch?.group(1);
       } else if (line.isNotEmpty && !line.startsWith('#')) {

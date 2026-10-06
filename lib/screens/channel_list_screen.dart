@@ -19,12 +19,18 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
   List<Channel> _filtered = [];
   bool _loading = true;
   List<String> _favorites = [];
-  String _currentGroup = 'الكل';
+  final _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadChannels();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadChannels() async {
@@ -65,11 +71,16 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
 
   void _filter(String q) {
     setState(() {
-      _filtered = q.isEmpty
-          ? _channels
-          : _channels
-              .where((c) => c.name.toLowerCase().contains(q.toLowerCase()))
-              .toList();
+      if (q.isEmpty) {
+        _filtered = _channels;
+      } else {
+        final lower = q.toLowerCase();
+        _filtered = _channels
+            .where((c) =>
+                c.name.toLowerCase().contains(lower) ||
+                (c.group?.toLowerCase().contains(lower) ?? false))
+            .toList();
+      }
     });
   }
 
@@ -80,7 +91,15 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
 
     if (_loading) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF3B82F6)),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Color(0xFF3B82F6)),
+            SizedBox(height: 16),
+            Text('جاري تحميل القنوات...',
+                style: TextStyle(color: Colors.white70)),
+          ],
+        ),
       );
     }
 
@@ -94,13 +113,24 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
             children: [
               Expanded(
                 child: TextField(
+                  controller: _searchController,
                   onChanged: _filter,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    hintText: 'ابحث عن قناة...',
+                    hintText: 'ابحث عن قناة أو مجموعة...',
                     hintStyle: const TextStyle(color: Colors.white54),
                     prefixIcon:
                         const Icon(Icons.search, color: Colors.white54),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear,
+                                color: Colors.white54),
+                            onPressed: () {
+                              _searchController.clear();
+                              _filter('');
+                            },
+                          )
+                        : null,
                     filled: true,
                     fillColor: const Color(0xFF1F2937),
                     border: OutlineInputBorder(
@@ -119,6 +149,17 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
             ],
           ),
         ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: padding),
+          child: Row(
+            children: [
+              Text('${_filtered.length} قناة',
+                  style: const TextStyle(
+                      color: Colors.white54, fontSize: 12)),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
         Expanded(
           child: GridView.builder(
             padding: EdgeInsets.symmetric(horizontal: padding),
@@ -234,6 +275,26 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
                     ],
                   ),
                 ),
+                if (channel.group != null && channel.group!.isNotEmpty)
+                  Positioned(
+                    bottom: 0,
+                    left: 4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        channel.group!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 9),
+                      ),
+                    ),
+                  ),
                 Positioned(
                   top: 0,
                   right: 0,

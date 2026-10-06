@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/breakpoints.dart';
+import '../services/storage_service.dart';
 import 'channel_list_screen.dart';
 import 'add_source_screen.dart';
 
@@ -41,19 +42,21 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
         ],
       ),
       bottomNavigationBar: !isLarge ? _buildBottomNav() : null,
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: const Color(0xFF3B82F6),
-        onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AddSourceScreen()),
-          );
-          if (result == true) {
-            setState(() => _refreshKey++);
-          }
-        },
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+      floatingActionButton: _selectedIndex == 2
+          ? null
+          : FloatingActionButton(
+              backgroundColor: const Color(0xFF3B82F6),
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AddSourceScreen()),
+                );
+                if (result == true) {
+                  setState(() => _refreshKey++);
+                }
+              },
+              child: const Icon(Icons.add, color: Colors.white),
+            ),
     );
   }
 
@@ -62,8 +65,7 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
       case 0:
         return ChannelListScreen(key: ValueKey('channels_$_refreshKey'));
       case 1:
-        return ChannelListScreen(
-            key: ValueKey('fav_$_refreshKey'));
+        return ChannelListScreen(key: ValueKey('fav_$_refreshKey'));
       case 2:
         return _settingsPage();
       default:
@@ -72,9 +74,101 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
   }
 
   Widget _settingsPage() {
-    return const Center(
-      child: Text('الإعدادات - قريباً',
-          style: TextStyle(color: Colors.white54, fontSize: 18)),
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        const Text('الإعدادات',
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold)),
+        const SizedBox(height: 24),
+        _settingTile(
+          icon: Icons.refresh,
+          title: 'إعادة تحميل القنوات',
+          subtitle: 'تحميل المصادر من جديد',
+          onTap: () {
+            setState(() {
+              _refreshKey++;
+              _selectedIndex = 0;
+            });
+          },
+        ),
+        _settingTile(
+          icon: Icons.delete_sweep,
+          title: 'مسح القنوات المخزنة',
+          subtitle: 'حذف كل القنوات المحفوظة محلياً',
+          color: Colors.orange,
+          onTap: () async {
+            await StorageService.clearChannels();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('تم مسح القنوات المخزنة')),
+              );
+              setState(() => _refreshKey++);
+            }
+          },
+        ),
+        _settingTile(
+          icon: Icons.delete_forever,
+          title: 'مسح كل شيء',
+          subtitle: 'حذف المصادر + القنوات + المفضلة',
+          color: Colors.red,
+          onTap: () async {
+            final confirm = await showDialog<bool>(
+              context: context,
+              builder: (_) => AlertDialog(
+                backgroundColor: const Color(0xFF1F2937),
+                title: const Text('تأكيد',
+                    style: TextStyle(color: Colors.white)),
+                content: const Text('سيتم حذف كل البيانات. متابعة؟',
+                    style: TextStyle(color: Colors.white70)),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('إلغاء'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('حذف',
+                        style: TextStyle(color: Colors.red)),
+                  ),
+                ],
+              ),
+            );
+            if (confirm == true) {
+              await StorageService.clearChannels();
+              await StorageService.saveSources([]);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('تم مسح كل البيانات')),
+                );
+                setState(() => _refreshKey++);
+              }
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _settingTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    Color color = Colors.white,
+  }) {
+    return Card(
+      color: const Color(0xFF1F2937),
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: Icon(icon, color: color),
+        title: Text(title, style: TextStyle(color: color)),
+        subtitle: Text(subtitle,
+            style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        onTap: onTap,
+      ),
     );
   }
 
