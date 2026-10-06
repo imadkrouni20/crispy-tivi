@@ -7,6 +7,8 @@ import '../services/storage_service.dart';
 import '../services/cache_service.dart';
 import '../config/breakpoints.dart';
 import 'player_screen.dart';
+import 'movie_detail_screen.dart';
+import 'series_detail_screen.dart';
 
 class ChannelListScreen extends StatefulWidget {
   final bool forceRefresh;
@@ -514,13 +516,34 @@ class _ChannelListScreenState extends State<ChannelListScreen> {
       child: Builder(builder: (ctx) {
         final hasFocus = Focus.of(ctx).hasFocus;
         return GestureDetector(
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  PlayerScreen(url: channel.url, title: channel.name, logo: channel.logo),
-            ),
-          ),
+          onTap: () {
+            final t = widget.contentType;
+            if (t == 'vod') {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => MovieDetailScreen(channel: channel)),
+              );
+            } else if (t == 'series') {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => SeriesDetailScreen(channel: channel)),
+              );
+            } else {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PlayerScreen(
+                    url: channel.url,
+                    title: channel.name,
+                    logo: channel.logo,
+                    isLive: true,
+                  ),
+                ),
+              );
+            }
+          },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             decoration: BoxDecoration(

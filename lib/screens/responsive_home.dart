@@ -7,6 +7,7 @@ import 'channel_list_screen.dart';
 import 'add_source_screen.dart';
 import 'xtream_login_screen.dart';
 import 'epg_screen.dart';
+import 'universal_search_screen.dart';
 
 class ResponsiveHome extends StatefulWidget {
   const ResponsiveHome({super.key});
@@ -462,7 +463,13 @@ class _ResponsiveHomeState extends State<ResponsiveHome> {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
             icon: const Icon(Icons.search, color: Colors.white),
-            onPressed: () {},
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const UniversalSearchScreen()),
+              );
+            },
           ),
           IconButton(
             iconSize: isLandscape ? 20 : 24,

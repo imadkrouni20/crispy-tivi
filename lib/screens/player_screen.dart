@@ -3,17 +3,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import '../services/watch_progress_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String url;
   final String title;
   final String? logo;
+  final bool isLive;
 
   const PlayerScreen({
     super.key,
     required this.url,
     required this.title,
     this.logo,
+    this.isLive = false,
   });
 
   @override
@@ -27,7 +30,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String? _error;
   bool _controlsVisible = true;
   Timer? _hideTimer;
+  Timer? _saveTimer;
   final List<StreamSubscription> _subs = [];
+  bool _resumed = false;
 
   @override
   void initState() {
@@ -36,7 +41,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _player = Player(
       configuration: const PlayerConfiguration(
-        // 💡 حل مشكلة بعض السيرفرات التي ترفض البث
         bufferSize: 32 * 1024 * 1024,
         logLevel: MPVLogLevel.warn,
       ),
@@ -45,11 +49,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _initPlayer();
     _setupListeners();
+
+    // حفظ التقدم كل 5 ثواني
+    if (!widget.isLive) {
+      _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+        _saveProgress();
+      });
+    }
   }
 
   void _setupListeners() {
     _subs.add(_player.stream.error.listen((event) {
-      debugPrint('Player error: $event');
       if (mounted && event.isNotEmpty) {
         setState(() {
           _error = event;
@@ -67,12 +77,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _initPlayer() async {
     try {
-      await _player.open(
-        Media(widget.url),
-        play: true,
-      );
+      await _player.open(Media(widget.url), play: true);
+
+      // استئناف المشاهدة (لغير المباشر)
+      if (!widget.isLive) {
+        final progress = await WatchProgressService.get(widget.url);
+        if (progress != null && progress.isWatchable) {
+          await _player.seek(
+              Duration(milliseconds: progress.positionMs));
+          if (mounted) {
+            setState(() => _resumed = true);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                duration: const Duration(seconds: 3),
+                backgroundColor: const Color(0xFF1F2937),
+                content: Text(
+                  'استئناف من ${_fmt(Duration(milliseconds: progress.positionMs))}',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+            );
+          }
+        }
+      }
+
       if (mounted) {
-        // بعد ثانيتين، إذا لم يبدأ → اعتبره خطأ
         Future.delayed(const Duration(seconds: 12), () {
           if (mounted && _loading) {
             setState(() {
@@ -92,6 +121,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  Future<void> _saveProgress() async {
+    if (widget.isLive) return;
+    final pos = _player.state.position;
+    final dur = _player.state.duration;
+    if (dur.inMilliseconds > 0) {
+      await WatchProgressService.save(widget.url, pos, dur);
+    }
+  }
+
   void _startHideTimer() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 5), () {
@@ -106,10 +144,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
-    for (final s in _subs) {
-      s.cancel();
-    }
+    _saveProgress();
+    for (final s in _subs) s.cancel();
     _hideTimer?.cancel();
+    _saveTimer?.cancel();
     _player.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
@@ -167,6 +205,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (_resumed)
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3B82F6).withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text('متابعة',
+                        style:
+                            TextStyle(color: Colors.white, fontSize: 11)),
+                  ),
                 StreamBuilder<bool>(
                   stream: _player.stream.buffering,
                   initialData: _player.state.buffering,
@@ -294,51 +345,53 @@ class _PlayerScreenState extends State<PlayerScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // شريط التقدم
-          StreamBuilder<Duration>(
-            stream: _player.stream.position,
-            initialData: _player.state.position,
-            builder: (_, posSnap) {
-              final pos = posSnap.data ?? Duration.zero;
-              return StreamBuilder<Duration>(
-                stream: _player.stream.duration,
-                initialData: _player.state.duration,
-                builder: (_, durSnap) {
-                  final dur = durSnap.data ?? Duration.zero;
-                  final total = dur.inMilliseconds;
-                  final current = pos.inMilliseconds;
-                  final progress = total > 0
-                      ? (current / total).clamp(0.0, 1.0)
-                      : 0.0;
+          if (!widget.isLive)
+            StreamBuilder<Duration>(
+              stream: _player.stream.position,
+              initialData: _player.state.position,
+              builder: (_, posSnap) {
+                final pos = posSnap.data ?? Duration.zero;
+                return StreamBuilder<Duration>(
+                  stream: _player.stream.duration,
+                  initialData: _player.state.duration,
+                  builder: (_, durSnap) {
+                    final dur = durSnap.data ?? Duration.zero;
+                    final total = dur.inMilliseconds;
+                    final current = pos.inMilliseconds;
+                    final progress = total > 0
+                        ? (current / total).clamp(0.0, 1.0)
+                        : 0.0;
 
-                  return Row(
-                    children: [
-                      Text(_fmt(pos),
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 12)),
-                      Expanded(
-                        child: Slider(
-                          value: progress,
-                          activeColor: const Color(0xFF3B82F6),
-                          inactiveColor: Colors.white24,
-                          onChanged: total > 0
-                              ? (v) {
-                                  final ms = (v * total).toInt();
-                                  _player.seek(Duration(milliseconds: ms));
-                                }
-                              : null,
+                    return Row(
+                      children: [
+                        Text(_fmt(pos),
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 12)),
+                        Expanded(
+                          child: Slider(
+                            value: progress,
+                            activeColor: const Color(0xFF3B82F6),
+                            inactiveColor: Colors.white24,
+                            onChanged: total > 0
+                                ? (v) {
+                                    final ms = (v * total).toInt();
+                                    _player.seek(
+                                        Duration(milliseconds: ms));
+                                  }
+                                : null,
+                          ),
                         ),
-                      ),
-                      Text(_fmt(dur),
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 12)),
-                    ],
-                  );
-                },
-              );
-            },
-          ),
-          // أزرار التحكم
+                        Text(_fmt(dur),
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 12)),
+                      ],
+                    );
+                  },
+                );
+              },
+            )
+          else
+            const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -361,7 +414,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
               ),
               const SizedBox(width: 16),
-              // زر إعادة البث المباشر (للقنوات)
               IconButton(
                 iconSize: 28,
                 icon: const Icon(Icons.refresh, color: Colors.white),
@@ -372,7 +424,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 tooltip: 'إعادة من البداية',
               ),
               const SizedBox(width: 16),
-              // زر اختيار الجودة (للبث المتعدد الجودات)
               StreamBuilder<List<VideoTrack>>(
                 stream: _player.stream.tracks,
                 initialData: _player.state.tracks,
@@ -388,7 +439,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
               ),
               const SizedBox(width: 16),
-              // زر التكبير/التصغير
               IconButton(
                 iconSize: 28,
                 icon: const Icon(Icons.fullscreen, color: Colors.white),
