@@ -1,0 +1,35 @@
+name: Build IPTV APK (Phone + TV)
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+          cache: true
+      - run: flutter config --enable-android
+      - run: flutter pub get
+      - name: Generate Android folder if missing
+        run: flutter create . --platforms=android
+      - name: Add TV Support to Manifest
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i '/<application/i \    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.type.television" android:required="false" />' "$MANIFEST"
+          fi
+      - run: flutter build apk --release --split-per-abi
+      - run: mkdir -p release-apks && find build/app/outputs/flutter-apk -name "*.apk" -exec cp {} release-apks/ \;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iptv-apk
+          path: release-apks/*.apk
