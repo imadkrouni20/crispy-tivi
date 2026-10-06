@@ -31,20 +31,34 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate Android folder if missing
+      - name: Generate Android folder
         run: flutter create . --platforms=android --project-name crispy_tivi
 
-      - name: Add TV support to AndroidManifest
+      - name: Configure AndroidManifest (TV + Internet + HTTP)
         run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ]; then
-            sed -i '/<application/i \    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />\n    <uses-feature android:name="android.software.leanback" android:required="false" />\n    <uses-feature android:name="android.hardware.type.television" android:required="false" />' "$MANIFEST"
-            echo "✅ Manifest updated"
-            cat "$MANIFEST" | head -20
-          else
-            echo "❌ Manifest not found!"
-            exit 1
-          fi
+          python3 << 'PYEOF'
+          import re
+          path = "android/app/src/main/AndroidManifest.xml"
+          with open(path) as f:
+              content = f.read()
+          
+          block = '''    <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+              <uses-feature android:name="android.software.leanback" android:required="false"/>
+              <uses-feature android:name="android.hardware.type.television" android:required="false"/>
+          '''
+          if 'android.software.leanback' not in content:
+              content = content.replace('<application', block + '    <application', 1)
+          
+          content = re.sub(
+              r'<application(\s+)',
+              r'<application\1android:usesCleartextTraffic="true"\1',
+              content, count=1)
+          
+          with open(path, 'w') as f:
+              f.write(content)
+          print(content[:2000])
+          PYEOF
 
       - name: Build APK
         run: flutter build apk --release --split-per-abi
