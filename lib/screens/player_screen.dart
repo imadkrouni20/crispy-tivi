@@ -50,7 +50,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _initPlayer();
     _setupListeners();
 
-    // حفظ التقدم كل 5 ثواني
     if (!widget.isLive) {
       _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
         _saveProgress();
@@ -79,7 +78,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try {
       await _player.open(Media(widget.url), play: true);
 
-      // استئناف المشاهدة (لغير المباشر)
       if (!widget.isLive) {
         final progress = await WatchProgressService.get(widget.url);
         if (progress != null && progress.isWatchable) {
@@ -424,11 +422,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 tooltip: 'إعادة من البداية',
               ),
               const SizedBox(width: 16),
-              StreamBuilder<List<VideoTrack>>(
+              // 🔧 إصلاح: استخدام Tracks.video بدل List<VideoTrack>
+              StreamBuilder<Tracks>(
                 stream: _player.stream.tracks,
                 initialData: _player.state.tracks,
                 builder: (_, snap) {
-                  final tracks = snap.data?.video ?? [];
+                  final tracks = snap.data?.video ?? <VideoTrack>[];
                   if (tracks.length < 2) return const SizedBox(width: 36);
                   return IconButton(
                     iconSize: 28,
