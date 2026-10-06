@@ -37,75 +37,163 @@ jobs:
       - name: Enable Android platform
         run: flutter config --enable-android
 
+      # 🔑 الخطوة الأهم: أنشئ مجلد android قبل pub get
+      - name: Generate Android folder
+        run: flutter create . --platforms=android --project-name crispy_tivi --org com.crispy
+
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Generate Android folder
-        run: flutter create . --platforms=android --project-name crispy_tivi
-
-      - name: Patch Gradle to SDK 36
+      - name: Fix Gradle Setup (settings.gradle + build.gradle)
         run: |
           python3 << 'PYEOF'
-          import re, os, glob
+          import os, re
 
-          # 1) Patch android/app/build.gradle (or .kts)
-          candidates = [
-              "android/app/build.gradle",
-              "android/app/build.gradle.kts",
-          ]
-          for path in candidates:
-              if not os.path.exists(path):
-                  continue
-              with open(path) as f:
-                  c = f.read()
+          # ============ 1. settings.gradle ============
+          # 🔑 استخدام النمط الحديث (pluginManagement + plugins)
+          settings_path = "android/settings.gradle"
+          modern_settings = '''pluginManagement {
+              def flutterSdkPath = {
+                  def properties = new Properties()
+                  file("local.properties").withInputStream { properties.load(it) }
+                  def flutterSdkPath = properties.getProperty("flutter.sdk")
+                  assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+                  return flutterSdkPath
+              }()
+              includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
 
-              # Replace compileSdk value
-              c = re.sub(r'compileSdk\s*=?\s*\d+', 'compileSdk = 36', c)
-              c = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', c)
+          plugins {
+              id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+              id "com.android.application" version "8.3.0" apply false
+              id "org.jetbrains.kotlin.android" version "1.9.10" apply false
+          }
 
-              # Replace targetSdk value
-              c = re.sub(r'targetSdk\s*=?\s*\d+', 'targetSdk = 36', c)
-              c = re.sub(r'targetSdkVersion\s+\d+', 'targetSdkVersion 36', c)
+          include ":app"
+          '''
+          with open(settings_path, "w") as f:
+              f.write(modern_settings)
+          print("✅ settings.gradle مُحدّث")
 
-              # Replace minSdk if needed (media_kit needs >= 21, we use 21)
-              if 'minSdk' not in c and 'minSdkVersion' not in c:
-                  c = c.replace('targetSdk = 36', 'targetSdk = 36\n        minSdk = 21')
+          # ============ 2. android/build.gradle ============
+          root_build = "android/build.gradle"
+          modern_root = '''allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
 
-              with open(path, 'w') as f:
-                  f.write(c)
-              print(f"✅ Patched {path}")
+          rootProject.buildDir = "../build"
+          subprojects {
+              project.buildDir = "${rootProject.buildDir}/${project.name}"
+          }
+          subprojects {
+              project.evaluationDependsOn(":app")
+          }
 
-          # 2) Patch android/build.gradle (root)
-          root = "android/build.gradle"
-          if os.path.exists(root):
-              with open(root) as f:
-                  c = f.read()
-              # force ext versions
-              if 'compileSdkVersion' in c:
-                  c = re.sub(r'compileSdkVersion\s+\d+',
-                             'compileSdkVersion 36', c)
-              if 'targetSdkVersion' in c:
-                  c = re.sub(r'targetSdkVersion\s+\d+',
-                             'targetSdkVersion 36', c)
-              with open(root, 'w') as f:
-                  f.write(c)
-              print("✅ Patched root build.gradle")
+          tasks.register("clean", Delete) {
+              delete rootProject.buildDir
+          }
+          '''
+          with open(root_build, "w") as f:
+              f.write(modern_root)
+          print("✅ android/build.gradle مُحدّث")
 
-          # 3) gradle.properties: enable AndroidX + Jetifier
+          # ============ 3. android/app/build.gradle ============
+          app_build = "android/app/build.gradle"
+          modern_app = '''plugins {
+              id "com.android.application"
+              id "kotlin-android"
+              id "dev.flutter.flutter-gradle-plugin"
+          }
+
+          def localProperties = new Properties()
+          def localPropertiesFile = rootProject.file("local.properties")
+          if (localPropertiesFile.exists()) {
+              localPropertiesFile.withReader("UTF-8") { reader ->
+                  localProperties.load(reader)
+              }
+          }
+
+          def flutterVersionCode = localProperties.getProperty("flutter.versionCode") ?: "1"
+          def flutterVersionName = localProperties.getProperty("flutter.versionName") ?: "1.0"
+
+          android {
+              namespace = "com.crispy.crispy_tivi"
+              compileSdk = 36
+              ndkVersion = flutter.ndkVersion
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+                  coreLibraryDesugaringEnabled = true
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+
+              defaultConfig {
+                  applicationId = "com.crispy.crispy_tivi"
+                  minSdk = 21
+                  targetSdk = 36
+                  versionCode = flutterVersionCode.toInteger()
+                  versionName = flutterVersionName
+                  multiDexEnabled = true
+              }
+
+              buildTypes {
+                  release {
+                      signingConfig = signingConfigs.debug
+                      minifyEnabled = false
+                      shrinkResources = false
+                  }
+              }
+          }
+
+          flutter {
+              source = "../.."
+          }
+
+          dependencies {
+              coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
+          }
+          '''
+          with open(app_build, "w") as f:
+              f.write(modern_app)
+          print("✅ android/app/build.gradle مُحدّث")
+
+          # ============ 4. gradle.properties ============
           gp = "android/gradle.properties"
-          if os.path.exists(gp):
-              with open(gp) as f:
-                  c = f.read()
-              if 'android.useAndroidX' not in c:
-                  c += '\nandroid.useAndroidX=true\nandroid.enableJetifier=true\n'
-              if 'org.gradle.jvmargs' not in c:
-                  c += '\norg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g\n'
-              with open(gp, 'w') as f:
-                  f.write(c)
-              print("✅ Patched gradle.properties")
+          with open(gp, "w") as f:
+              f.write('''org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError
+          android.useAndroidX=true
+          android.enableJetifier=true
+          android.nonTransitiveRClass=true
+          android.defaults.buildfeatures.buildconfig=true
+          ''')
+          print("✅ gradle.properties مُحدّث")
+
+          # ============ 5. gradle wrapper 8.7 ============
+          gw = "android/gradle/wrapper/gradle-wrapper.properties"
+          if os.path.exists(gw):
+              with open(gw, "w") as f:
+                  f.write('''distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip
+          ''')
+              print("✅ Gradle wrapper → 8.7")
           PYEOF
 
-      - name: Configure AndroidManifest (TV + Internet + HTTP + media_kit)
+      - name: Configure AndroidManifest
         run: |
           python3 << 'PYEOF'
           import re
@@ -133,11 +221,6 @@ jobs:
           print("✅ Manifest configured")
           PYEOF
 
-      - name: Clean before build
-        run: |
-          cd android && ./gradlew clean || true
-          cd ..
-
       - name: Build APK
         run: flutter build apk --release --split-per-abi --no-tree-shake-icons
 
@@ -154,13 +237,14 @@ jobs:
           path: release-apks/*.apk
           retention-days: 30
 
-      - name: Upload build logs on failure
+      - name: Upload error logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
           path: |
-            android/app/build.gradle
+            android/settings.gradle
             android/build.gradle
+            android/app/build.gradle
             android/gradle.properties
           retention-days: 7
